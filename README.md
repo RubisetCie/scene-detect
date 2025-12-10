@@ -1,34 +1,7 @@
 
-![PySceneDetect](https://raw.githubusercontent.com/Breakthrough/PySceneDetect/main/website/pages/img/pyscenedetect_logo_small.png)
+![PySceneDetect](https://raw.githubusercontent.com/RubisetCie/PySceneDetect/main/website/pages/img/pyscenedetect_logo_small.png)
 ==========================================================
 Video Cut Detection and Analysis Tool
-----------------------------------------------------------
-
-[![Build Status](https://img.shields.io/github/actions/workflow/status/Breakthrough/PySceneDetect/build.yml)](https://github.com/Breakthrough/PySceneDetect/actions)
-[![PyPI Status](https://img.shields.io/pypi/status/scenedetect.svg)](https://pypi.python.org/pypi/scenedetect/)
-[![PyPI Version](https://img.shields.io/pypi/v/scenedetect?color=blue)](https://pypi.python.org/pypi/scenedetect/)
-[![PyPI License](https://img.shields.io/pypi/l/scenedetect.svg)](https://scenedetect.com/copyright/)
-
-----------------------------------------------------------
-
-### Latest Release: v0.6.7 (August 24, 2025)
-
-**Website**:  [scenedetect.com](https://www.scenedetect.com)
-
-**Quickstart Example**: [scenedetect.com/cli/](https://www.scenedetect.com/cli/)
-
-**Documentation**:  [scenedetect.com/docs/](https://www.scenedetect.com/docs/)
-
-**Discord**: https://discord.gg/H83HbJngk7
-
-----------------------------------------------------------
-
-**Quick Install**:
-
-    pip install scenedetect[opencv] --upgrade
-
-Requires ffmpeg/mkvmerge for video splitting support. Windows builds (MSI installer/portable ZIP) can be found on [the download page](https://scenedetect.com/download/).
-
 ----------------------------------------------------------
 
 **Quick Start (Command Line)**:
@@ -107,17 +80,6 @@ We evaluate the performance of different detectors in terms of accuracy and proc
  - [Documentation](https://www.scenedetect.com/docs/) (covers application and Python API)
  - [CLI Example](https://www.scenedetect.com/cli/)
  - [Config File](https://www.scenedetect.com/docs/0.6.4/cli/config_file.html)
-
-## Help & Contributing
-
-Please submit any bugs/issues or feature requests to [the Issue Tracker](https://github.com/Breakthrough/PySceneDetect/issues). Before submission, ensure you search through existing issues (both open and closed) to avoid creating duplicate entries.
-Pull requests are welcome and encouraged.  PySceneDetect is released under the BSD 3-Clause license, and submitted code should be compliant.
-
-For help or other issues, you can join [the official PySceneDetect Discord Server](https://discord.gg/H83HbJngk7), submit an issue/bug report [here on Github](https://github.com/Breakthrough/PySceneDetect/issues), or contact me via [my website](http://www.bcastell.com/about/).
-
-## Code Signing
-
-This program uses free code signing provided by [SignPath.io](https://signpath.io?utm_source=foundation&utm_medium=github&utm_campaign=PySceneDetect), and a free code signing certificate by the [SignPath Foundation](https://signpath.org?utm_source=foundation&utm_medium=github&utm_campaign=PySceneDetect)
 
 ## License
 
