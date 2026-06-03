@@ -6,6 +6,16 @@ on:
         description: Python version
         default: '3.13'
         required: true
+      build_gui:
+        description: Build the graphical version
+        type: boolean
+        default: true
+        required: true
+      build_headless:
+        description: Build the headless version
+        type: boolean
+        default: true
+        required: true
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,7 +24,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python_version }}
           cache: 'pip'
@@ -22,14 +32,22 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip build wheel virtualenv setuptools
-          pip install -r requirements_headless.txt --only-binary av,opencv-python-headless
+          pip install -e . --only-binary av,opencv-python
 
-      - name: Build Package
+      - name: Build Package (GUI)
         shell: bash
         run: python -m build -w
+        if: ${{ github.event.inputs.build_gui == 'true' }}
+
+      - name: Build Package (Headless)
+        shell: bash
+        run: |
+          python packaging/build_headless.py
+          python -m build
+        if: ${{ github.event.inputs.build_headless == 'true' }}
 
       - name: Upload Package
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: scene-detect.zip
           path: |

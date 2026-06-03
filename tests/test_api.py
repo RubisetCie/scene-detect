@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2022 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -20,7 +20,7 @@ def test_api_detect(test_video_file: str):
 
     scene_list = detect(test_video_file, ContentDetector())
     for i, scene in enumerate(scene_list):
-        print("Scene %d: %s - %s" % (i + 1, scene[0].get_timecode(), scene[1].get_timecode()))
+        print(f"Scene {i + 1}: {scene[0].get_timecode()} - {scene[1].get_timecode()}")
 
 
 def test_api_detect_start_end_time(test_video_file: str):
@@ -31,7 +31,7 @@ def test_api_detect_start_end_time(test_video_file: str):
     # See test_api_timecode_types() for examples of each format.
     scene_list = detect(test_video_file, ContentDetector(), start_time=10.5, end_time=15.9)
     for i, scene in enumerate(scene_list):
-        print("Scene %d: %s - %s" % (i + 1, scene[0].get_timecode(), scene[1].get_timecode()))
+        print(f"Scene {i + 1}: {scene[0].get_timecode()} - {scene[1].get_timecode()}")
 
 
 def test_api_detect_stats(test_video_file: str):
@@ -51,7 +51,7 @@ def test_api_scene_manager(test_video_file: str):
     scene_manager.detect_scenes(video=video)
     scene_list = scene_manager.get_scene_list()
     for i, scene in enumerate(scene_list):
-        print("Scene %d: %s - %s" % (i + 1, scene[0].get_timecode(), scene[1].get_timecode()))
+        print(f"Scene {i + 1}: {scene[0].get_timecode()} - {scene[1].get_timecode()}")
 
 
 def test_api_scene_manager_start_end_time(test_video_file: str):
@@ -69,7 +69,20 @@ def test_api_scene_manager_start_end_time(test_video_file: str):
     scene_manager.detect_scenes(video=video, end_time=end_time)
     scene_list = scene_manager.get_scene_list()
     for i, scene in enumerate(scene_list):
-        print("Scene %d: %s - %s" % (i + 1, scene[0].get_timecode(), scene[1].get_timecode()))
+        print(f"Scene {i + 1}: {scene[0].get_timecode()} - {scene[1].get_timecode()}")
+
+
+def test_api_open_video_framerate_legacy_alias(test_video_file: str):
+    """`open_video(framerate=...)` is the soft-deprecated alias for `frame_rate=` (issue #548).
+    Both forms must produce equivalent streams; when both are provided, `frame_rate` wins."""
+    from scenedetect import open_video
+
+    legacy = open_video(test_video_file, framerate=30.0)
+    canonical = open_video(test_video_file, frame_rate=30.0)
+    assert legacy.frame_rate == canonical.frame_rate
+    # `frame_rate` takes precedence over `framerate` when both are provided.
+    both = open_video(test_video_file, frame_rate=30.0, framerate=24.0)
+    assert both.frame_rate == canonical.frame_rate
 
 
 def test_api_timecode_types():
@@ -100,7 +113,8 @@ def test_api_stats_manager(test_video_file: str):
     scene_manager.add_detector(ContentDetector())
     scene_manager.detect_scenes(video=video)
     # Save per-frame statistics to disk.
-    filename = "%s.stats.csv" % test_video_file
+    filename = f"{test_video_file}.stats.csv"
+    assert scene_manager.stats_manager is not None
     scene_manager.stats_manager.save_to_csv(csv_file=filename)
 
 
@@ -108,11 +122,11 @@ def test_api_scene_manager_callback(test_video_file: str):
     """Demonstrate how to use a callback with the SceneManager detect_scenes method."""
     import numpy
 
-    from scenedetect import ContentDetector, SceneManager, open_video
+    from scenedetect import ContentDetector, FrameTimecode, SceneManager, open_video
 
     # Callback to invoke on the first frame of every new scene detection.
-    def on_new_scene(frame_img: numpy.ndarray, frame_num: int):
-        print("New scene found at frame %d." % frame_num)
+    def on_new_scene(frame_img: numpy.ndarray, position: FrameTimecode):
+        print(f"New scene found at frame {position.frame_num}.")
 
     video = open_video(test_video_file)
     scene_manager = SceneManager()
@@ -127,11 +141,11 @@ def test_api_device_callback(test_video_file: str):
     import cv2
     import numpy
 
-    from scenedetect import ContentDetector, SceneManager, VideoCaptureAdapter
+    from scenedetect import ContentDetector, FrameTimecode, SceneManager, VideoCaptureAdapter
 
     # Callback to invoke on the first frame of every new scene detection.
-    def on_new_scene(frame_img: numpy.ndarray, frame_num: int):
-        print("New scene found at frame %d." % frame_num)
+    def on_new_scene(frame_img: numpy.ndarray, position: FrameTimecode):
+        print(f"New scene found at frame {position.frame_num}.")
 
     # We open a file just for test purposes, but we can also use a device or pipe here.
     cap = cv2.VideoCapture(test_video_file)

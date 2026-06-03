@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2020 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -32,6 +32,12 @@ import typing as ty
 
 import pytest
 
+# Surface unhandled exceptions and KeyboardInterrupt as raw tracebacks during tests so pytest
+# (and any debugger) sees the original failure instead of the logger-formatted output the CLI
+# uses for end users. Read by `scenedetect.platform.DEBUG_MODE`. `setdefault` lets a developer
+# override (e.g. `SCENEDETECT_DEBUG=` to mimic end-user behavior in a specific test run).
+os.environ.setdefault("SCENEDETECT_DEBUG", "1")
+
 #
 # Helper Functions
 #
@@ -45,14 +51,13 @@ def check_exists(path: ty.AnyStr) -> ty.AnyStr:
     """
     if not os.path.exists(path):
         raise FileNotFoundError(
-            """
-Test video file (%s) must be present to run test case. This file can be obtained by running the following commands from the root of the repository:
+            f"""
+Test video file ({path}) must be present to run test case. This file can be obtained by running the following commands from the root of the repository:
 
 git fetch --depth=1 https://github.com/Breakthrough/PySceneDetect.git refs/heads/resources:refs/remotes/origin/resources
 git checkout refs/remotes/origin/resources -- tests/resources/
 git reset
 """
-            % path
         )
     return path
 

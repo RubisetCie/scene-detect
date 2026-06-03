@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2016 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -15,14 +15,13 @@ can be used to open a video for a
 :class:`SceneManager <scenedetect.scene_manager.SceneManager>`.
 """
 
-import typing as ty
 from logging import getLogger
 
 # OpenCV is a required package, but we don't have it as an explicit dependency since we
 # need to support both opencv-python and opencv-python-headless. Include some additional
 # context with the exception if this is the case.
 try:
-    import cv2 as _
+    import cv2 as _  # availability check; raise a friendlier error if missing
 except ModuleNotFoundError as ex:
     raise ModuleNotFoundError(
         "OpenCV could not be found, try installing opencv-python:\n\npip install opencv-python",
@@ -34,12 +33,15 @@ except ModuleNotFoundError as ex:
 from scenedetect.platform import init_logger  # noqa: I001
 from scenedetect.common import (
     FrameTimecode,
+    FrameRate,
     SceneList,
     CutList,
     CropRegion,
     TimecodePair,
+    TimecodeLike,
     Interpolation,
 )
+from scenedetect.platform import StrPath
 from scenedetect.video_stream import VideoStream, VideoOpenFailure
 from scenedetect.output import (
     save_images,
@@ -73,16 +75,17 @@ from scenedetect.scene_manager import SceneManager
 
 # Used for module identification and when printing version & about info
 # (e.g. calling `scenedetect version` or `scenedetect about`).
-__version__ = "0.8"
+__version__ = "0.8.1"
 
 init_logger()
 logger = getLogger("pyscenedetect")
 
 
 def open_video(
-    path: str,
-    framerate: ty.Optional[float] = None,
+    path: StrPath,
+    frame_rate: FrameRate | None = None,
     backend: str = "opencv",
+    framerate: float | None = None,
     **kwargs,
 ) -> VideoStream:
     """Open a video at the given path. If `backend` is specified but not available on the current
@@ -90,10 +93,12 @@ def open_video(
 
     Arguments:
         path: Path to video file to open.
-        framerate: Overrides detected framerate if set.
+        frame_rate: Overrides detected frame rate if set. Takes precedence over `framerate`.
         backend: Name of specific backend to use, if possible. See
             :data:`scenedetect.backends.AVAILABLE_BACKENDS` for backends available on the current
             system. If the backend fails to open the video, OpenCV will be used as a fallback.
+        framerate: [DEPRECATED] Use `frame_rate` instead. Retained as a deprecated alias for
+            backwards compatibility; ignored when `frame_rate` is provided.
         kwargs: Optional named arguments to pass to the specified `backend` constructor for
             overriding backend-specific options.
 
@@ -104,13 +109,17 @@ def open_video(
         :class:`VideoOpenFailure`: Constructing the VideoStream fails. If multiple backends have
             been attempted, the error from the first backend will be returned.
     """
-    last_error: Exception = None
+    # TODO(https://scenedetect.com/issue/548): emit DeprecationWarning when `framerate=` is
+    # used, once internal callers and downstream users have had a release to migrate.
+    if frame_rate is None:
+        frame_rate = framerate
+    last_error: Exception | None = None
     # If `backend` is available, try to open the video at `path` using it.
     if backend in AVAILABLE_BACKENDS:
         backend_type = AVAILABLE_BACKENDS[backend]
         try:
             logger.debug("Opening video with %s...", backend_type.BACKEND_NAME)
-            return backend_type(path, framerate, **kwargs)
+            return backend_type(path, frame_rate, **kwargs)
         except VideoOpenFailure as ex:
             logger.warning("Failed to open video with %s: %s", backend_type.BACKEND_NAME, str(ex))
             if backend == VideoStreamCv2.BACKEND_NAME:
@@ -122,7 +131,7 @@ def open_video(
     backend_type = VideoStreamCv2
     logger.warning("Trying another backend: %s", backend_type.BACKEND_NAME)
     try:
-        return backend_type(path, framerate)
+        return backend_type(path, frame_rate)
     except VideoOpenFailure as ex:
         logger.debug("Failed to open video: %s", str(ex))
         if last_error is None:
@@ -133,13 +142,14 @@ def open_video(
 
 
 def detect(
-    video_path: str,
+    video_path: StrPath,
     detector: SceneDetector,
-    stats_file_path: ty.Optional[str] = None,
+    stats_file_path: StrPath | None = None,
     show_progress: bool = False,
-    start_time: ty.Optional[ty.Union[str, float, int]] = None,
-    end_time: ty.Optional[ty.Union[str, float, int]] = None,
+    start_time: TimecodeLike | None = None,
+    end_time: TimecodeLike | None = None,
     start_in_scene: bool = False,
+    backend: str = "opencv",
 ) -> SceneList:
     """Perform scene detection on a given video `path` using the specified `detector`.
 
@@ -159,6 +169,10 @@ def detect(
             will contain a single scene spanning the entire video (instead of no scenes).
             When detecting fades with `ThresholdDetector`, the beginning portion of the video
             will always be included until the first fade-out event is detected.
+        backend: Name of the backend to use for video decoding. See
+            :data:`scenedetect.backends.AVAILABLE_BACKENDS` for backends available on the
+            current system. Defaults to OpenCV; falls back to OpenCV if the requested backend
+            is unavailable or fails to open the video.
 
     Returns:
         List of scenes as pairs of (start, end) :class:`FrameTimecode` objects.
@@ -169,12 +183,10 @@ def detect(
         ValueError: `start_time` or `end_time` are incorrectly formatted.
         TypeError: `start_time` or `end_time` are invalid types.
     """
-    video = open_video(video_path)
+    video = open_video(video_path, backend=backend)
     if start_time is not None:
-        start_time = video.base_timecode + start_time
-        video.seek(start_time)
-    if end_time is not None:
-        end_time = video.base_timecode + end_time
+        video.seek(FrameTimecode(start_time, video.frame_rate))
+    end_timecode = FrameTimecode(end_time, video.frame_rate) if end_time is not None else None
     # To reduce memory consumption when not required, we only add a StatsManager if we
     # need to save frame metrics to disk.
     scene_manager = SceneManager(StatsManager() if stats_file_path else None)
@@ -182,8 +194,8 @@ def detect(
     scene_manager.detect_scenes(
         video=video,
         show_progress=show_progress,
-        end_time=end_time,
+        end_time=end_timecode,
     )
-    if scene_manager.stats_manager is not None:
+    if scene_manager.stats_manager is not None and stats_file_path is not None:
         scene_manager.stats_manager.save_to_csv(csv_file=stats_file_path)
     return scene_manager.get_scene_list(start_in_scene=start_in_scene)

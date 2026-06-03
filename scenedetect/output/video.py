@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2025 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -32,14 +32,21 @@ available on the computer, depending on the specified command-line options.
 
 import logging
 import math
-import subprocess
 import time
 import typing as ty
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from scenedetect.common import FrameTimecode, TimecodePair
-from scenedetect.platform import CommandTooLong, Template, get_ffmpeg_path, invoke_command, tqdm
+from scenedetect.platform import (
+    CommandTooLong,
+    Template,
+    get_ffmpeg_path,
+    get_mkvmerge_path,
+    invoke_command,
+    tqdm,
+)
 
 logger = logging.getLogger("pyscenedetect")
 
@@ -52,7 +59,9 @@ See https://github.com/Breakthrough/PySceneDetect/issues/164
 for details.  Sorry about that!
 """
 
-_FFMPEG_PATH: ty.Optional[str] = get_ffmpeg_path()
+# TODO: Resolve this on first use (e.g., functools.cache on the getter) rather than at import
+# time, so that importing this module doesn't spawn an ffmpeg subprocess.
+_FFMPEG_PATH: str | None = get_ffmpeg_path()
 """Relative path to the ffmpeg binary on this system, if any (will be None if not available)."""
 
 _DEFAULT_FFMPEG_ARGS = (
@@ -71,14 +80,7 @@ def is_mkvmerge_available() -> bool:
     Returns:
         True if `mkvmerge` can be invoked, False otherwise.
     """
-    ret_val = None
-    try:
-        ret_val = subprocess.call(["mkvmerge", "--quiet"])
-    except OSError:
-        return False
-    if ret_val is not None and ret_val != 2:
-        return False
-    return True
+    return get_mkvmerge_path() is not None
 
 
 def is_ffmpeg_available() -> bool:
@@ -119,7 +121,7 @@ class SceneMetadata:
     """Last frame."""
 
 
-PathFormatter = ty.Callable[[VideoMetadata, SceneMetadata], ty.AnyStr]
+PathFormatter = ty.Callable[[VideoMetadata, SceneMetadata], str]
 
 
 def default_formatter(template: str) -> PathFormatter:
@@ -129,20 +131,23 @@ def default_formatter(template: str) -> PathFormatter:
     `$START_PTS`, `$END_PTS` (presentation timestamp in milliseconds, accurate for VFR video)
     """
     MIN_DIGITS = 3
-    format_scene_number: PathFormatter = lambda video, scene: (
-        ("%0" + str(max(MIN_DIGITS, math.floor(math.log(video.total_scenes, 10)) + 1)) + "d")
-        % (scene.index + 1)
-    )
-    formatter: PathFormatter = lambda video, scene: Template(template).safe_substitute(
-        VIDEO_NAME=video.name,
-        SCENE_NUMBER=format_scene_number(video, scene),
-        START_TIME=str(scene.start.get_timecode().replace(":", ";")),
-        END_TIME=str(scene.end.get_timecode().replace(":", ";")),
-        START_FRAME=str(scene.start.frame_num),
-        END_FRAME=str(scene.end.frame_num),
-        START_PTS=str(round(scene.start.seconds * 1000)),
-        END_PTS=str(round(scene.end.seconds * 1000)),
-    )
+
+    def format_scene_number(video: VideoMetadata, scene: SceneMetadata) -> str:
+        width = max(MIN_DIGITS, math.floor(math.log(video.total_scenes, 10)) + 1)
+        return ("%0" + str(width) + "d") % (scene.index + 1)
+
+    def formatter(video: VideoMetadata, scene: SceneMetadata) -> str:
+        return Template(template).safe_substitute(
+            VIDEO_NAME=video.name,
+            SCENE_NUMBER=format_scene_number(video, scene),
+            START_TIME=str(scene.start.get_timecode().replace(":", ";")),
+            END_TIME=str(scene.end.get_timecode().replace(":", ";")),
+            START_FRAME=str(scene.start.frame_num),
+            END_FRAME=str(scene.end.frame_num),
+            START_PTS=str(round(scene.start.seconds * 1000)),
+            END_PTS=str(round(scene.end.seconds * 1000)),
+        )
+
     return formatter
 
 
@@ -153,10 +158,10 @@ def default_formatter(template: str) -> PathFormatter:
 
 def split_video_mkvmerge(
     input_video_path: str,
-    scene_list: ty.Iterable[TimecodePair],
-    output_dir: ty.Optional[ty.Union[str, Path]] = None,
-    output_file_template: ty.Optional[ty.Union[str, Path]] = "$VIDEO_NAME.mkv",
-    video_name: ty.Optional[str] = None,
+    scene_list: Sequence[TimecodePair],
+    output_dir: str | Path | None = None,
+    output_file_template: str = "$VIDEO_NAME.mkv",
+    video_name: str | None = None,
     show_output: bool = False,
     suppress_output=None,
 ) -> int:
@@ -214,12 +219,13 @@ def split_video_mkvmerge(
         "-o",
         str(output_path),
         "--split",
-        "parts:%s"
-        % ",".join(
-            [
-                "%s-%s" % (start_time.get_timecode(), end_time.get_timecode())
-                for start_time, end_time in scene_list
-            ]
+        "parts:{}".format(
+            ",".join(
+                [
+                    f"{start_time.get_timecode()}-{end_time.get_timecode()}"
+                    for start_time, end_time in scene_list
+                ]
+            )
         ),
         input_video_path,
     ]
@@ -248,16 +254,16 @@ def split_video_mkvmerge(
 
 def split_video_ffmpeg(
     input_video_path: str,
-    scene_list: ty.Iterable[TimecodePair],
-    output_dir: ty.Optional[Path] = None,
+    scene_list: Sequence[TimecodePair],
+    output_dir: str | Path | None = None,
     output_file_template: str = "$VIDEO_NAME-Scene-$SCENE_NUMBER.mp4",
-    video_name: ty.Optional[str] = None,
+    video_name: str | None = None,
     arg_override: str = _DEFAULT_FFMPEG_ARGS,
     show_progress: bool = False,
     show_output: bool = False,
     suppress_output=None,
     hide_progress=None,
-    formatter: ty.Optional[PathFormatter] = None,
+    formatter: PathFormatter | None = None,
 ) -> int:
     """Split `input_video_path` using `ffmpeg` based on the scenes in `scene_list`.
 
@@ -307,14 +313,14 @@ def split_video_ffmpeg(
     arg_override = arg_override.replace('\\"', '"')
 
     ret_val = 0
-    arg_override = arg_override.split(" ")
+    ffmpeg_args = arg_override.split(" ")
     scene_num_format = "%0"
     scene_num_format += str(max(3, math.floor(math.log(len(scene_list), 10)) + 1)) + "d"
 
     if formatter is None:
         formatter = default_formatter(output_file_template)
     video_metadata = VideoMetadata(
-        name=video_name, path=input_video_path, total_scenes=len(scene_list)
+        name=video_name, path=Path(input_video_path), total_scenes=len(scene_list)
     )
 
     try:
@@ -326,7 +332,7 @@ def split_video_ffmpeg(
         for i, (start_time, end_time) in enumerate(scene_list):
             duration = end_time - start_time
             scene_metadata = SceneMetadata(index=i, start=start_time, end=end_time)
-            output_path = Path(formatter(scene=scene_metadata, video=video_metadata))
+            output_path = Path(formatter(video_metadata, scene_metadata))
             if output_dir:
                 output_path = Path(output_dir) / output_path
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -350,7 +356,7 @@ def split_video_ffmpeg(
                 "-t",
                 str(duration.seconds),
             ]
-            call_list += arg_override
+            call_list += ffmpeg_args
             call_list += ["-sn"]
             call_list += [str(output_path)]
             ret_val = invoke_command(call_list)

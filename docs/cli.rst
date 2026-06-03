@@ -178,8 +178,6 @@ Options
 
   Default: ``15.0``
 
-
-
 .. option:: -f VAL, --frame-window VAL
 
   Size of window to detect deviations from mean. Represents how many frames before/after the current one to use for mean.
@@ -552,6 +550,38 @@ Options
   Output directory to save EDL file to. Overrides global option :option:`-o/--output <scenedetect -o>`.
 
 
+.. _command-save-fcp:
+
+.. program:: scenedetect save-fcp
+
+
+``save-fcp``
+========================================================================
+
+Save cuts in Final Cut Pro XML format (FCP7 xmeml or FCPX).
+
+
+Options
+------------------------------------------------------------------------
+
+
+.. option:: -f NAME, --filename NAME
+
+  Filename format to use.
+
+  Default: ``$VIDEO_NAME.xml``
+
+.. option:: --format TYPE
+
+  Format to export. TYPE must be one of: fcpx, fcp7.
+
+  Default: ``FcpFormat.FCPX``
+
+.. option:: -o DIR, --output DIR
+
+  Output directory to save XML file to. Overrides global option :option:`-o/--output <scenedetect -o>`.
+
+
 .. _command-save-html:
 
 .. program:: scenedetect save-html
@@ -658,11 +688,11 @@ Options
 
   Default: ``3``
 
-.. option:: -m N, --frame-margin N
+.. option:: -m DURATION, --frame-margin DURATION
 
-  Number of frames to ignore at beginning/end of scenes when saving images. Controls temporal padding on scene boundaries.
+  Padding around the beginning/end of each scene used when selecting which frames to extract. DURATION can be specified in frames (-m 1), in seconds with `s` suffix (-m 0.1s), or timecode (-m 00:00:00.100).
 
-  Default: ``3``
+  Default: ``1``
 
 .. option:: -s S, --scale S
 
@@ -826,6 +856,10 @@ Options
 .. option:: -m, --mkvmerge
 
   Split video using mkvmerge. Faster than re-encoding, but less precise. If set, options other than :option:`-f/--filename <-f>`, :option:`-q/--quiet <-q>` and :option:`-o/--output <-o>` will be ignored. Note that mkvmerge automatically appends the $SCENE_NUMBER suffix.
+
+.. option:: --expand
+
+  Extend the first/last output clips to cover the full input video, even if the :ref:`time <command-time>` command's ``--start``/``--end`` limited the analysis window. Useful for keeping content outside the analyzed region attached to the adjacent split.
 
 
 .. _command-time:

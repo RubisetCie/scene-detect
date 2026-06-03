@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2022 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -42,9 +42,9 @@ MOVIEPY_WARNING_FILTER = "ignore:.*Using the last valid frame instead.:UserWarni
 
 
 def get_moviepy_major_version() -> int:
-    import moviepy
+    import importlib.metadata
 
-    return int(moviepy.__version__.split(".")[0])
+    return int(importlib.metadata.version("moviepy").split(".")[0])
 
 
 def calculate_frame_delta(frame_a, frame_b, roi=None) -> float:
@@ -65,14 +65,13 @@ def get_absolute_path(relative_path: str) -> str:
     abs_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), relative_path)
     if not os.path.exists(abs_path):
         raise FileNotFoundError(
-            """
-Test video file (%s) must be present to run test case. This file can be obtained by running the following commands from the root of the repository:
+            f"""
+Test video file ({relative_path}) must be present to run test case. This file can be obtained by running the following commands from the root of the repository:
 
 git fetch --depth=1 https://github.com/Breakthrough/PySceneDetect.git refs/heads/resources:refs/remotes/origin/resources
 git checkout refs/remotes/origin/resources -- tests/resources/
 git reset
 """
-            % relative_path
         )
     return abs_path
 
@@ -91,7 +90,7 @@ class VideoParameters:
 
 # TODO: Save two "golden" frames from each video on a shot boundary, and use that to validate
 # that seeking works correctly for all backends (as well as that no frames are dropped).
-def get_test_video_params() -> ty.List[VideoParameters]:
+def get_test_video_params() -> list[VideoParameters]:
     """Fixture for parameters of all videos."""
     return [
         VideoParameters(
@@ -121,20 +120,17 @@ def get_test_video_params() -> ty.List[VideoParameters]:
     ]
 
 
+_VS_TYPES: list = [vs for vs in (VideoStreamCv2, VideoStreamAv) if vs is not None]
+if VideoStreamMoviePy is not None:
+    _VS_TYPES.append(
+        pytest.param(
+            VideoStreamMoviePy,
+            marks=pytest.mark.flaky(reruns=3, reruns_delay=2, only_rerun=["OSError"]),
+        )
+    )
+
 pytestmark = [
-    pytest.mark.parametrize(
-        "vs_type",
-        list(
-            filter(
-                lambda x: x is not None,
-                [
-                    VideoStreamCv2,
-                    VideoStreamAv,
-                    VideoStreamMoviePy,
-                ],
-            )
-        ),
-    ),
+    pytest.mark.parametrize("vs_type", _VS_TYPES),
     pytest.mark.filterwarnings(MOVIEPY_WARNING_FILTER),
 ]
 
@@ -143,11 +139,12 @@ pytestmark = [
 class TestVideoStream:
     """Fixture for tests which run against different input videos."""
 
-    def test_properties(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_properties(self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters):
         """Validate video properties: frame size, frame rate, duration, aspect ratio, etc."""
         stream = vs_type(test_video.path)
         assert stream.frame_size == (test_video.width, test_video.height)
         assert stream.frame_rate == pytest.approx(test_video.frame_rate, FRAMERATE_TOLERANCE)
+        assert stream.duration is not None
         assert stream.duration.frame_num == test_video.total_frames
         file_name = os.path.basename(test_video.path)
         last_dot_pos = file_name.rfind(".")
@@ -156,21 +153,26 @@ class TestVideoStream:
             test_video.aspect_ratio, PIXEL_ASPECT_RATIO_TOLERANCE
         )
 
-    def test_read(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_read(self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters):
         """Validate basic `read` functionality."""
         stream = vs_type(test_video.path)
         frame = stream.read()
+        assert isinstance(frame, numpy.ndarray)
         # For now hard-code 3 channels/pixel for each test video
         assert frame.shape == (test_video.height, test_video.width, 3)
         assert stream.frame_number == 1
 
-    def test_read_no_decode(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_read_no_decode(
+        self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters
+    ):
         """Validate invoking `read` with `decode` set to False."""
         stream = vs_type(test_video.path)
         assert stream.read(decode=False) is True
         assert stream.frame_number == 1
 
-    def test_time_invariants(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_time_invariants(
+        self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters
+    ):
         """Validate the `frame_number`, `position`, and `position_ms` properties."""
         stream = vs_type(test_video.path)
         # The video starts "before" the first frame, with everything set to zero.
@@ -193,7 +195,7 @@ class TestVideoStream:
                 1000.0 * (i - 1) / float(stream.frame_rate), abs=TIME_TOLERANCE_MS
             )
 
-    def test_reset(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_reset(self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters):
         """Test `reset()` functions as expected."""
         stream = vs_type(test_video.path)
         # Decode some frames, then reset the VideoStream and validate the time invariants.
@@ -205,7 +207,7 @@ class TestVideoStream:
         assert stream.position == 0
         assert stream.position_ms == pytest.approx(0, abs=TIME_TOLERANCE_MS)
 
-    def test_seek(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_seek(self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters):
         """Validate `seek()` functionality with different offset types."""
         stream = vs_type(test_video.path)
 
@@ -251,7 +253,7 @@ class TestVideoStream:
         assert stream.position == stream.base_timecode + 2.0
         assert stream.position_ms == pytest.approx(2000.0, abs=1000.0 / stream.frame_rate)
 
-    def test_seek_start(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_seek_start(self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters):
         """Validate behaviour of `seek()` at the start of a video."""
         stream = vs_type(test_video.path)
         # Here we check similar invariants to test_time_invariants, but using seek().
@@ -286,7 +288,7 @@ class TestVideoStream:
         assert stream.frame_number == 2
         stream = vs_type(test_video.path)
 
-    def test_read_eof(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_read_eof(self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters):
         """Ensure calling `read()` handles the end of the video correctly."""
         stream = vs_type(test_video.path)
         # To make the test faster, we seek to the second last frame.
@@ -299,7 +301,9 @@ class TestVideoStream:
         else:
             assert stream.frame_number == test_video.total_frames
 
-    def test_seek_past_eof(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_seek_past_eof(
+        self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters
+    ):
         """Validate calling `seek()` to offset past end of video."""
         stream = vs_type(test_video.path)
         # Seek to a large seek offset past the end of the video. Some backends only support 32-bit
@@ -318,7 +322,9 @@ class TestVideoStream:
         else:
             assert stream.frame_number == test_video.total_frames
 
-    def test_seek_invalid(self, vs_type: ty.Type[VideoStream], test_video: VideoParameters):
+    def test_seek_invalid(
+        self, vs_type: ty.Callable[..., VideoStream], test_video: VideoParameters
+    ):
         """Test `seek()` throws correct exception when specifying in invalid seek value."""
         stream = vs_type(test_video.path)
 
@@ -334,13 +340,25 @@ class TestVideoStream:
 #
 
 
-def test_invalid_path(vs_type: ty.Type[VideoStream]):
+def test_invalid_path(vs_type: ty.Callable[..., VideoStream]):
     """Ensure correct exception is thrown if the path does not exist."""
     with pytest.raises(OSError):
         _ = vs_type("this_path_should_not_exist.mp4")
 
 
-def test_corrupt_video(vs_type: ty.Type[VideoStream], corrupt_video_file: str):
+def test_framerate_legacy_alias(vs_type: ty.Callable[..., VideoStream]):
+    """`framerate=` is the soft-deprecated alias for `frame_rate=` (issue #548). All backends
+    must accept both forms and produce the same `frame_rate`."""
+    path = get_absolute_path("resources/goldeneye.mp4")
+    legacy = vs_type(path, framerate=30.0)
+    canonical = vs_type(path, frame_rate=30.0)
+    assert legacy.frame_rate == canonical.frame_rate
+    # When both are provided, `frame_rate` wins (legacy is ignored).
+    both = vs_type(path, frame_rate=30.0, framerate=24.0)
+    assert both.frame_rate == canonical.frame_rate
+
+
+def test_corrupt_video(vs_type: ty.Callable[..., VideoStream], corrupt_video_file: str):
     """Test that backend handles video with corrupt frame gracefully with defaults."""
     if vs_type == VideoStreamMoviePy and get_moviepy_major_version() >= 2:
         # Due to changes in MoviePy 2.0 (#461), loading this file causes an exception to be thrown.
@@ -354,4 +372,4 @@ def test_corrupt_video(vs_type: ty.Type[VideoStream], corrupt_video_file: str):
     # OpenCV usually fails to read the video at frame 45, but the remaining frames all seem to
     # decode just fine. Make sure all backends can get to 60 without reporting a failure.
     for frame in range(60):
-        assert stream.read() is not False, "Failed on frame %d!" % frame
+        assert stream.read() is not False, f"Failed on frame {frame}!"

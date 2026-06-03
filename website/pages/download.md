@@ -6,24 +6,24 @@ PySceneDetect is completely free software, and can be downloaded from the links 
 PySceneDetect requires at least Python 3.10 or higher.
 
 
-## Install via pip &nbsp; <span class="wy-text-neutral"><span class="fa fa-windows"></span> &nbsp; <span class="fa fa-linux"></span> &nbsp; <span class="fa fa-apple"></span></span></h3>
+## Install via pip &nbsp; <span class="wy-text-neutral"><span class="fa fa-windows"></span> &nbsp; <span class="fa fa-linux"></span> &nbsp; <span class="fa fa-apple"></span></span>
 
 <div class="important">
-<h4 class="wy-text-neutral"><span class="fa fa-angle-double-down wy-text-info"></span> Including OpenCV (recommended):</h4>
-<h3 class="wy-text-neutral"><tt>pip install --upgrade scenedetect[opencv]</tt></h3>
-<h4 class="wy-text-neutral"><span class="fa fa-angle-down wy-text-info"></span> Including Headless OpenCV (servers):</h4>
-<h3 class="wy-text-neutral"><tt>pip install --upgrade scenedetect[opencv-headless]</tt></h3>
+<h4 class="wy-text-neutral"><span class="fa fa-angle-double-down wy-text-info"></span> Standard install (recommended):</h4>
+<h3 class="wy-text-neutral"><tt>pip install --upgrade scenedetect</tt></h3>
+<h4 class="wy-text-neutral"><span class="fa fa-angle-down wy-text-info"></span> Headless install (servers, no GUI libs):</h4>
+<h3 class="wy-text-neutral"><tt>pip install --upgrade scenedetect-headless</tt></h3>
 </div>
 
-PySceneDetect is available via `pip` as [the `scenedetect` package](https://pypi.org/project/scenedetect/).
+PySceneDetect is available via `pip` as either [`scenedetect`](https://pypi.org/project/scenedetect/) (depends on `opencv-python`) or [`scenedetect-headless`](https://pypi.org/project/scenedetect-headless/) (depends on `opencv-python-headless`). Both ship the same `scenedetect` Python module -- install whichever OpenCV variant suits your environment.
 
 ## Windows Build (64-bit Only) &nbsp; <span class="wy-text-neutral"><span class="fa fa-windows"></span></span>
 
 <div class="important">
-<h3 class="wy-text-neutral"><span class="fa fa-forward wy-text-info"></span> Latest Release: <b class="wy-text-neutral">v0.6.7</b></h3>
-<h4 class="wy-text-neutral"><span class="fa fa-calendar wy-text-info"></span>&nbsp; Release Date:&nbsp; <b>August 24, 2025</b></h4>
-<a href="https://github.com/Breakthrough/PySceneDetect/releases/download/v0.6.7-release/PySceneDetect-0.6.7-win64.msi" class="btn btn-info" style="margin-bottom:8px;" role="button"><span class="fa fa-download"></span>&nbsp; <b>Installer</b>&nbsp;&nbsp;(recommended)</a> &nbsp;&nbsp;&nbsp;&nbsp;
-<a href="https://github.com/Breakthrough/PySceneDetect/releases/download/v0.6.7-release/PySceneDetect-0.6.7-win64.zip" class="btn btn-info" style="margin-bottom:8px;" role="button"><span class="fa fa-download"></span>&nbsp; <b>Portable .zip</b></a> &nbsp;&nbsp;&nbsp;&nbsp;
+<h3 class="wy-text-neutral"><span class="fa fa-forward wy-text-info"></span> Latest Release: <b class="wy-text-neutral">v0.7</b></h3>
+<h4 class="wy-text-neutral"><span class="fa fa-calendar wy-text-info"></span>&nbsp; Release Date:&nbsp; <b>May 3, 2026</b></h4>
+<a href="https://github.com/Breakthrough/PySceneDetect/releases/download/v0.7-release/PySceneDetect-0.7-win64.msi" class="btn btn-info" style="margin-bottom:8px;" role="button"><span class="fa fa-download"></span>&nbsp; <b>Installer</b>&nbsp;&nbsp;(recommended)</a> &nbsp;&nbsp;&nbsp;&nbsp;
+<a href="https://github.com/Breakthrough/PySceneDetect/releases/download/v0.7-release/PySceneDetect-0.7-win64.zip" class="btn btn-info" style="margin-bottom:8px;" role="button"><span class="fa fa-download"></span>&nbsp; <b>Portable .zip</b></a> &nbsp;&nbsp;&nbsp;&nbsp;
 <a href="../cli/" class="btn btn-success" style="margin-bottom:8px;" role="button"><span class="fa fa-book"></span>&nbsp; <b>Getting Started</b></a>
 </div>
 

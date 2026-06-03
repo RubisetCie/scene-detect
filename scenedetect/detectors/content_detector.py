@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2018 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import cv2
 import numpy
 
-from scenedetect.common import FrameTimecode
+from scenedetect.common import FrameTimecode, TimecodeLike
 from scenedetect.detector import FlashFilter, SceneDetector
 
 
@@ -85,7 +85,7 @@ class ContentDetector(SceneDetector):
     FRAME_SCORE_KEY = "content_val"
     """Key in statsfile representing the final frame score after weighed by specified components."""
 
-    METRIC_KEYS = [FRAME_SCORE_KEY, *Components._fields]
+    METRIC_KEYS: ty.ClassVar[list[str]] = [FRAME_SCORE_KEY, *Components._fields]
     """All statsfile keys this detector produces."""
 
     @dataclass
@@ -98,23 +98,24 @@ class ContentDetector(SceneDetector):
         """Frame saturation map [2D 8-bit]."""
         lum: numpy.ndarray
         """Frame luma/brightness map [2D 8-bit]."""
-        edges: ty.Optional[numpy.ndarray]
+        edges: numpy.ndarray | None
         """Frame edge map [2D 8-bit, edges are 255, non edges 0]. Affected by `kernel_size`."""
 
     def __init__(
         self,
         threshold: float = 27.0,
-        min_scene_len: int = 15,
+        min_scene_len: TimecodeLike = 15,
         weights: "ContentDetector.Components" = DEFAULT_COMPONENT_WEIGHTS,
         luma_only: bool = False,
-        kernel_size: ty.Optional[int] = None,
+        kernel_size: int | None = None,
         filter_mode: FlashFilter.Mode = FlashFilter.Mode.MERGE,
     ):
         """
         Arguments:
             threshold: Threshold the average change in pixel intensity must exceed to trigger a cut.
-            min_scene_len: Once a cut is detected, this many frames must pass before a new one can
-                be added to the scene list. Can be an int or FrameTimecode type.
+            min_scene_len: Once a cut is detected, this much time must pass before a new one can
+                be added to the scene list. Accepts an int (frames), float (seconds), or
+                str (e.g. ``"0.6s"``, ``"00:00:00.600"``).
             weights: Weight to place on each component when calculating frame score
                 (`content_val` in a statsfile, the value `threshold` is compared against).
             luma_only: If True, only considers changes in the luminance channel of the video.
@@ -126,17 +127,16 @@ class ContentDetector(SceneDetector):
         """
         super().__init__()
         self._threshold: float = threshold
-        self._last_above_threshold: ty.Optional[int] = None
-        self._last_frame: ty.Optional[ContentDetector._FrameData] = None
+        self._last_frame: ContentDetector._FrameData | None = None
         self._weights: ContentDetector.Components = weights
         if luma_only:
             self._weights = ContentDetector.LUMA_ONLY_WEIGHTS
-        self._kernel: ty.Optional[numpy.ndarray] = None
+        self._kernel: numpy.ndarray | None = None
         if kernel_size is not None:
             if kernel_size < 3 or kernel_size % 2 == 0:
                 raise ValueError("kernel_size must be odd integer >= 3")
             self._kernel = numpy.ones((kernel_size, kernel_size), numpy.uint8)
-        self._frame_score: ty.Optional[float] = None
+        self._frame_score: float | None = None
         # TODO(https://scenedetect.com/issue/168): Figure out a better long term plan for handling
         # `min_scene_len` which should be specified in seconds, not frames.
         self._flash_filter = FlashFilter(mode=filter_mode, length=min_scene_len)
@@ -168,7 +168,9 @@ class ContentDetector(SceneDetector):
             delta_sat=_mean_pixel_distance(sat, self._last_frame.sat),
             delta_lum=_mean_pixel_distance(lum, self._last_frame.lum),
             delta_edges=(
-                0.0 if edges is None else _mean_pixel_distance(edges, self._last_frame.edges)
+                0.0
+                if edges is None or self._last_frame.edges is None
+                else _mean_pixel_distance(edges, self._last_frame.edges)
             ),
         )
 
@@ -189,10 +191,10 @@ class ContentDetector(SceneDetector):
 
     def process_frame(
         self, timecode: FrameTimecode, frame_img: numpy.ndarray
-    ) -> ty.List[FrameTimecode]:
+    ) -> list[FrameTimecode]:
         """Process the next frame. `frame_num` is assumed to be sequential.
 
-        Args:
+        Arguments:
             frame_num (int): Frame number of frame that is being passed. Can start from any value
                 but must remain sequential.
             frame_img (numpy.ndarray or None): Video frame corresponding to `frame_img`.

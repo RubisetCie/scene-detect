@@ -1,5 +1,7 @@
 docs/_build/
+docs/STYLE.md
 website/build/
+scripts/local/
 tests/resources/*
 *.mp4
 *.jpg
@@ -9,11 +11,16 @@ tests/resources/*
 *.mkv
 *.m4v
 *.csv
-benchmarks/BCC/*.mp4
-*.txt
-benchmarks/RAI/*.mp4
+packaging/windows/.version_info
+packaging/windows/installer/PySceneDetect.back*.aip
+packaging/windows/installer/PySceneDetect-*.msi
+packaging/windows/installer/PySceneDetect-cache/
 *.txt
 
+benchmark/BBC/
+benchmark/AutoShot/
+benchmark/ClipShots/
+benchmark/results/
 
 # From https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 

@@ -1,8 +1,8 @@
 
-![PySceneDetect](https://raw.githubusercontent.com/RubisetCie/PySceneDetect/main/website/pages/img/pyscenedetect_logo_small.png)
-==========================================================
-Video Cut Detection and Analysis Tool
-----------------------------------------------------------
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/RubisetCie/PySceneDetect/main/website/pages/img/pyscenedetect_logo_small_darkmode.png">
+  <img alt="PySceneDetect" src="https://raw.githubusercontent.com/RubisetCie/PySceneDetect/main/website/pages/img/pyscenedetect_logo_small.png">
+</picture>
 
 **Quick Start (Command Line)**:
 
@@ -87,5 +87,5 @@ BSD-3-Clause; see [`LICENSE`](LICENSE) and [`THIRD-PARTY.md`](THIRD-PARTY.md) fo
 
 ----------------------------------------------------------
 
-Copyright (C) 2014-2024 Brandon Castellano.
+Copyright (C) 2014 Brandon Castellano.
 All rights reserved.

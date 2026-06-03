@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2026 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -14,16 +14,13 @@
 This detector is available from the command-line as the `detect-transnetv2` command.
 """
 
-import typing as ty
-import warnings
-from enum import Enum
 from logging import getLogger
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from scenedetect.common import FrameTimecode, Timecode
+from scenedetect.common import FrameTimecode, TimecodeLike
 from scenedetect.detector import FlashFilter, SceneDetector
 
 logger = getLogger("pyscenedetect")
@@ -52,12 +49,12 @@ class Detector:
 class Predictor:
     def __init__(
         self,
-        model_path: ty.Union[str, Path],
+        model_path: str | Path,
         flash_filter: FlashFilter,
-        onnx_providers: ty.Union[ty.List[str], None],
+        onnx_providers: list[str] | None,
         threshold,
     ):
-        import onnxruntime as ort
+        import onnxruntime as ort  # pyright: ignore[reportMissingImports]
 
         ort.set_default_logger_severity(3)
 
@@ -110,6 +107,8 @@ class Predictor:
                 ),
             )
         else:
+            # `self.time` is set in lockstep with `self.pixels` above, so it is non-None here.
+            assert self.time is not None
             c1 = self.pixels
             c2 = pixels
 
@@ -132,10 +131,10 @@ class Predictor:
 class TransnetV2Detector(SceneDetector):
     def __init__(
         self,
-        model_path: ty.Union[str, Path] = "tests/resources/transnetv2.onnx",
-        onnx_providers: ty.Union[ty.List[str], None] = None,
+        model_path: str | Path = "tests/resources/transnetv2.onnx",
+        onnx_providers: list[str] | None = None,
         threshold: float = 0.5,
-        min_scene_len: int = 15,
+        min_scene_len: TimecodeLike = 15,
         filter_mode: FlashFilter.Mode = FlashFilter.Mode.MERGE,
     ):
         super().__init__()
@@ -163,9 +162,7 @@ class TransnetV2Detector(SceneDetector):
         t = float(pts * self.time_base)
         return FrameTimecode(t, fps=self._fps)
 
-    def process_frame(
-        self, timecode: FrameTimecode, frame_img: np.ndarray
-    ) -> ty.List[FrameTimecode]:
+    def process_frame(self, timecode: FrameTimecode, frame_img: np.ndarray) -> list[FrameTimecode]:
         """Process the next frame."""
 
         self.time_base = timecode.time_base
@@ -189,7 +186,7 @@ class TransnetV2Detector(SceneDetector):
         else:
             return []
 
-    def post_process(self, timecode: FrameTimecode) -> ty.List[FrameTimecode]:
+    def post_process(self, timecode: FrameTimecode) -> list[FrameTimecode]:
         """Writes a final scene cut if the last detected fade was a fade-out."""
 
         cuts = []

@@ -15,14 +15,12 @@ This file includes unit tests for the scenedetect.scene_manager.SceneManager cla
 which applies SceneDetector algorithms on VideoStream backends.
 """
 
-import typing as ty
-
 import pytest
 
 from scenedetect.backends.opencv import VideoStreamCv2
 from scenedetect.common import FrameTimecode
 from scenedetect.detectors import AdaptiveDetector, ContentDetector
-from scenedetect.scene_manager import SceneManager
+from scenedetect.scene_manager import SceneManager, expand_scenes_to_bounds
 
 TEST_VIDEO_START_FRAMES_ACTUAL = [150, 180, 394]
 
@@ -89,7 +87,7 @@ class FakeCallback:
     """Fake callback used for testing. Tracks the frame numbers the callback was invoked with."""
 
     def __init__(self):
-        self.scene_list: ty.List[int] = []
+        self.scene_list: list[int] = []
 
     def get_callback_lambda(self):
         """For testing using a lambda.."""
@@ -200,15 +198,66 @@ def test_detect_scenes_crop(test_video_file):
 
 def test_crop_invalid():
     sm = SceneManager()
-    sm.crop = None
+    sm.crop = None  # type: ignore[assignment]
     sm.crop = (0, 0, 0, 0)
     sm.crop = (1, 1, 0, 0)
     sm.crop = (0, 0, 1, 1)
     with pytest.raises(TypeError):
-        sm.crop = 1
+        sm.crop = 1  # type: ignore[assignment]
     with pytest.raises(TypeError):
-        sm.crop = (1, 1)
+        sm.crop = (1, 1)  # type: ignore[assignment]
     with pytest.raises(TypeError):
-        sm.crop = (1, 1, 1)
+        sm.crop = (1, 1, 1)  # type: ignore[assignment]
     with pytest.raises(ValueError):
         sm.crop = (1, 1, 1, -1)
+
+
+def test_expand_scenes_to_bounds_two_scenes():
+    """Scenes detected inside a sub-window should be extended outward."""
+    fps = 10.0
+    t0 = FrameTimecode(0, fps)
+    t130 = FrameTimecode(130, fps)
+    t150 = FrameTimecode(150, fps)
+    t170 = FrameTimecode(170, fps)
+    t300 = FrameTimecode(300, fps)
+
+    scenes = [(t130, t150), (t150, t170)]
+    expanded = expand_scenes_to_bounds(scenes, start=t0, end=t300)
+
+    assert expanded == [(t0, t150), (t150, t300)]
+
+
+def test_expand_scenes_to_bounds_empty():
+    """Empty scene lists pass through unchanged."""
+    fps = 10.0
+    assert expand_scenes_to_bounds([], FrameTimecode(0, fps), FrameTimecode(100, fps)) == []
+
+
+def test_expand_scenes_to_bounds_single_scene():
+    """A single scene gets both endpoints extended."""
+    fps = 10.0
+    t0 = FrameTimecode(0, fps)
+    t130 = FrameTimecode(130, fps)
+    t170 = FrameTimecode(170, fps)
+    t300 = FrameTimecode(300, fps)
+
+    scenes = [(t130, t170)]
+    expanded = expand_scenes_to_bounds(scenes, start=t0, end=t300)
+
+    assert expanded == [(t0, t300)]
+
+
+def test_expand_scenes_to_bounds_does_not_mutate_input():
+    """The input scene list must not be modified in place."""
+    fps = 10.0
+    t0 = FrameTimecode(0, fps)
+    t130 = FrameTimecode(130, fps)
+    t150 = FrameTimecode(150, fps)
+    t170 = FrameTimecode(170, fps)
+    t300 = FrameTimecode(300, fps)
+
+    scenes = [(t130, t150), (t150, t170)]
+    original = list(scenes)
+    expand_scenes_to_bounds(scenes, start=t0, end=t300)
+
+    assert scenes == original

@@ -5,7 +5,7 @@
 #     [  Docs:   http://manual.scenedetect.scenedetect.com/      ]
 #     [  Github: https://github.com/Breakthrough/PySceneDetect/  ]
 #
-# Copyright (C) 2014-2022 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2024 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -20,7 +20,7 @@ import typing as ty
 import cv2
 import numpy
 
-from scenedetect.common import FrameTimecode
+from scenedetect.common import FrameTimecode, TimecodeLike
 from scenedetect.detector import SceneDetector
 
 
@@ -28,18 +28,23 @@ class HistogramDetector(SceneDetector):
     """Compares the difference in the Y channel of YUV histograms for adjacent frames. When the
     difference exceeds a given threshold, a cut is detected."""
 
-    METRIC_KEYS = ["hist_diff"]
+    METRIC_KEYS: ty.ClassVar[list[str]] = ["hist_diff"]
 
-    def __init__(self, threshold: float = 0.05, bins: int = 256, min_scene_len: int = 15):
+    def __init__(
+        self,
+        threshold: float = 0.05,
+        bins: int = 256,
+        min_scene_len: TimecodeLike = 15,
+    ):
         """
         Arguments:
             threshold: maximum relative difference between 0.0 and 1.0 that the histograms can
                 differ. Histograms are calculated on the Y channel after converting the frame to
-                YUV, and normalized based on the number of bins. Higher dicfferences imply greater
+                YUV, and normalized based on the number of bins. Higher differences imply greater
                 change in content, so larger threshold values are less sensitive to cuts.
             bins: Number of bins to use for the histogram.
-            min_scene_len:   Once a cut is detected, this many frames must pass before a new one can
-                be added to the scene list. Can be an int or FrameTimecode type.
+            min_scene_len: Once a cut is detected, this much time must pass before a new one can
+                be added to the scene list. Accepts any :data:`TimecodeLike` value.
         """
         super().__init__()
         # Internally, threshold represents the correlation between two histograms and has values
@@ -51,20 +56,22 @@ class HistogramDetector(SceneDetector):
         self._last_cut = None
         self._metric_key = f"hist_diff [bins={self._bins}]"
 
-    def process_frame(self, timecode: FrameTimecode, frame_img: numpy.ndarray) -> ty.List[int]:
+    def process_frame(
+        self, timecode: FrameTimecode, frame_img: numpy.ndarray
+    ) -> list[FrameTimecode]:
         """Computes the histogram of the luma channel of the frame image and compares it with the
-        histogram of the luma channel of the previous frame. If the difference between the histograms
-        exceeds the threshold, a scene cut is detected.
+        histogram of the luma channel of the previous frame. If the difference between the
+        histograms exceeds the threshold, a scene cut is detected.
         Histogram difference is computed using the correlation metric.
 
         Arguments:
-            frame_num: Frame number of frame that is being passed.
+            timecode: Timecode of the frame that is being passed.
             frame_img: Decoded frame image (numpy.ndarray) to perform scene
                 detection on.
 
         Returns:
-            List of frames where scene cuts have been detected. There may be 0
-            or more frames in the list, and not necessarily the same as frame_num.
+            List of timecodes where scene cuts have been detected. There may be 0
+            or more timecodes in the list, and not necessarily the same as `timecode`.
         """
         cut_list = []
 
@@ -92,11 +99,12 @@ class HistogramDetector(SceneDetector):
 
             # Check if a new scene should be triggered
             # Set a correlation threshold to determine scene changes.
-            # The threshold value should be between -1 (perfect negative correlation, not applicable here)
-            # and +1 (perfect positive correlation, identical histograms).
+            # The threshold value should be between -1 (perfect negative correlation, not
+            # applicable here) and +1 (perfect positive correlation, identical histograms).
             # Values close to 1 indicate very similar frames, while lower values suggest changes.
-            # Example: If `_threshold` is set to 0.8, it implies that only changes resulting in a correlation
-            # less than 0.8 between histograms will be considered significant enough to denote a scene change.
+            # Example: If `_threshold` is set to 0.8, it implies that only changes resulting in a
+            # correlation less than 0.8 between histograms will be considered significant enough to
+            # denote a scene change.
             if hist_diff <= self._threshold and (
                 (timecode - self._last_cut) >= self._min_scene_len
             ):
@@ -123,30 +131,24 @@ class HistogramDetector(SceneDetector):
         the specified number of bins, and optionally normalizes this histogram to have a sum of one
         across all bins.
 
-        Args:
-        -----
-        frame_img : np.ndarray
-            The input image in BGR color space, assumed to have shape (height, width, 3)
-            where the last dimension represents the BGR channels.
-        bins : int, optional (default=256)
-            The number of bins to use for the histogram.
-        normalize : bool, optional (default=True)
-            A boolean flag that determines whether the histogram should be normalized
-            such that the sum of all histogram bins equals 1.
+        Arguments:
+            frame_img: The input image in BGR color space, assumed to have shape
+                (height, width, 3) where the last dimension represents the BGR channels.
+            bins: The number of bins to use for the histogram.
+            normalize: A boolean flag that determines whether the histogram should be
+                normalized such that the sum of all histogram bins equals 1.
 
         Returns:
-        --------
-        np.ndarray
-            A 1D numpy array of length equal to `bins`, representing the histogram of the luma
-            channel. Each element in the array represents the count (or frequency) of a particular
-            luma value in the image. If normalized, these values represent the relative frequency.
+            A 1D numpy array of length equal to `bins`, representing the histogram of the
+            luma channel. Each element in the array represents the count (or frequency) of
+            a particular luma value in the image. If normalized, these values represent the
+            relative frequency.
 
-        Examples:
-        ---------
-        >>> img = cv2.imread("path_to_image.jpg")
-        >>> hist = calculate_histogram(img, bins=256, normalize=True)
-        >>> print(hist.shape)
-        (256,)
+        Example:
+            >>> img = cv2.imread("path_to_image.jpg")
+            >>> hist = calculate_histogram(img, bins=256, normalize=True)
+            >>> print(hist.shape)
+            (256,)
         """
         # Extract Luma channel from the frame image
         y, _, _ = cv2.split(cv2.cvtColor(frame_img, cv2.COLOR_BGR2YUV))
@@ -160,5 +162,5 @@ class HistogramDetector(SceneDetector):
 
         return hist
 
-    def get_metrics(self) -> ty.List[str]:
+    def get_metrics(self) -> list[str]:
         return [self._metric_key]

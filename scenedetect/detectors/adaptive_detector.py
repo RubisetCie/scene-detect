@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2021 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -16,12 +16,11 @@ changes. This can help mitigate false detections in situations such as fast came
 This detector is available from the command-line as the `detect-adaptive` command.
 """
 
-import typing as ty
 from logging import getLogger
 
 import numpy as np
 
-from scenedetect.common import FrameTimecode
+from scenedetect.common import FrameTimecode, TimecodeLike
 from scenedetect.detectors import ContentDetector
 
 logger = getLogger("pyscenedetect")
@@ -38,19 +37,20 @@ class AdaptiveDetector(ContentDetector):
     def __init__(
         self,
         adaptive_threshold: float = 3.0,
-        min_scene_len: int = 15,
+        min_scene_len: TimecodeLike = 15,
         window_width: int = 2,
         min_content_val: float = 15.0,
         weights: ContentDetector.Components = ContentDetector.DEFAULT_COMPONENT_WEIGHTS,
         luma_only: bool = False,
-        kernel_size: ty.Optional[int] = None,
+        kernel_size: int | None = None,
     ):
         """
         Arguments:
             adaptive_threshold: Threshold (float) that score ratio must exceed to trigger a
                 new scene (see frame metric adaptive_ratio in stats file).
-            min_scene_len: Once a cut is detected, this many frames must pass before a new one can
-                be added to the scene list. Can be an int or FrameTimecode type.
+            min_scene_len: Once a cut is detected, this much time must pass before a new one can
+                be added to the scene list. Accepts an int (frames), float (seconds), or
+                str (e.g. ``"0.6s"``, ``"00:00:00.600"``).
             window_width: Size of window (number of frames) before and after each frame to
                 average together in order to detect deviations from the mean. Must be at least 1.
             min_content_val: Minimum threshold (float) that the content_val must exceed in order to
@@ -85,22 +85,24 @@ class AdaptiveDetector(ContentDetector):
         self._adaptive_ratio_key = AdaptiveDetector.ADAPTIVE_RATIO_KEY_TEMPLATE.format(
             window_width=window_width, luma_only="" if not luma_only else "_lum"
         )
-        self._buffer: ty.List[ty.Tuple[FrameTimecode, float]] = []
+        self._buffer: list[tuple[FrameTimecode, float]] = []
         # NOTE: The name of last cut is different from `self._last_scene_cut` from our base class,
         # and serves a different purpose!
-        self._last_cut: ty.Optional[FrameTimecode] = None
+        self._last_cut: FrameTimecode | None = None
 
     @property
     def event_buffer_length(self) -> int:
         return self.window_width
 
-    def get_metrics(self) -> ty.List[str]:
-        return super().get_metrics() + [self._adaptive_ratio_key]
+    def get_metrics(self) -> list[str]:
+        return [*super().get_metrics(), self._adaptive_ratio_key]
 
-    def process_frame(
-        self, timecode: FrameTimecode, frame_img: np.ndarray
-    ) -> ty.List[FrameTimecode]:
+    def process_frame(self, timecode: FrameTimecode, frame_img: np.ndarray) -> list[FrameTimecode]:
         super().process_frame(timecode=timecode, frame_img=frame_img)
+
+        # If the parent could not calculate a frame score, there's nothing to buffer.
+        if self._frame_score is None:
+            return []
 
         # Initialize last scene cut point at the beginning of the frames of interest.
         if self._last_cut is None:

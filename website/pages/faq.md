@@ -4,24 +4,23 @@
 
 #### How can I fix `ImportError: No module named cv2`?
 
-You need to install OpenCV for PySceneDetect to properly work.  If you're using `pip`, you can install it as follows:
+As of PySceneDetect 0.7, the OpenCV dependency is bundled with the install. The standard `scenedetect` package depends on `opencv-python`:
 
-```md
-pip install scenedetect[opencv]
+```bash
+pip install scenedetect
 ```
 
-Note that you may need to use a different/older version depending on your Python version.  You can also use the headless package if you're running a server:
+For server environments without GUI libraries, install the headless variant instead, which depends on `opencv-python-headless`:
 
-
-```md
-pip install scenedetect[opencv-headless]
+```bash
+pip install scenedetect-headless
 ```
 
-Unlike calling `pip install opencv-python`, the above commands will download and install the correct OpenCV version based on the Python version you are running.
+Both packages ship the same `scenedetect` Python module -- you only need one.
 
 #### How can I enable video splitting support?
 
-Video splitting is performed by `ffmpeg` ([https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)) or `mkvmerge` (https://mkvtoolnix.download/downloads.html) depending on which command line arguments are used. Ensure the tool is available and somewhere in your system's PATH folder.
+Video splitting is performed by `ffmpeg` ([https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)) or `mkvmerge` ([https://mkvtoolnix.download/downloads.html](https://mkvtoolnix.download/downloads.html)) depending on which command line arguments are used. Ensure the tool is available and somewhere in your system's PATH folder.
 
 #### How can I fix the error `Cannot split video due to too many scenes`?
 
@@ -37,12 +36,12 @@ Unfortunately, the underlying library used to perform video I/O was unable to op
 
 This can also happen due to videos having multiple audio tracks (as per [#179](https://github.com/Breakthrough/PySceneDetect/issues/179)).  If the PyAV backend does not succeed in processing the video, as a workaround you can remove the audio track using either `ffmpeg` or `mkvmerge`:
 
-```md
+```bash
 ffmpeg -i input.mp4 -c copy -an output.mp4
 ```
 
 Or:
 
-```md
+```bash
 mkvmerge -o output.mkv input.mp4
 ```

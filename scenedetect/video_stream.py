@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2022 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -33,12 +33,11 @@ tested by adding it to the test suite in `tests/test_video_stream.py`.
 
 import typing as ty
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from fractions import Fraction
 
 import numpy as np
 
-from scenedetect.common import FrameTimecode, Timecode
+from scenedetect.common import FrameTimecode, TimecodeLike
 
 
 class SeekError(Exception):
@@ -90,15 +89,11 @@ class VideoStream(ABC):
         return FrameTimecode(timecode=0, fps=self.frame_rate)
 
     #
-    # Abstract Static Methods
+    # Backend Identification
     #
 
-    @staticmethod
-    @abstractmethod
-    def BACKEND_NAME() -> str:
-        """Unique name used to identify this backend. Should be a static property in derived
-        classes (`BACKEND_NAME = 'backend_identifier'`)."""
-        ...
+    BACKEND_NAME: ty.ClassVar[str]
+    """Unique name used to identify this backend. Each subclass must set this to a unique str."""
 
     #
     # Abstract Properties
@@ -106,13 +101,13 @@ class VideoStream(ABC):
 
     @property
     @abstractmethod
-    def path(self) -> ty.Union[bytes, str]:
+    def path(self) -> str:
         """Video or device path."""
         ...
 
     @property
     @abstractmethod
-    def name(self) -> ty.Union[bytes, str]:
+    def name(self) -> str:
         """Name of the video, without extension, or device."""
         ...
 
@@ -130,13 +125,13 @@ class VideoStream(ABC):
 
     @property
     @abstractmethod
-    def duration(self) -> ty.Optional[FrameTimecode]:
+    def duration(self) -> FrameTimecode | None:
         """Duration of the stream as a FrameTimecode, or None if non terminating."""
         ...
 
     @property
     @abstractmethod
-    def frame_size(self) -> ty.Tuple[int, int]:
+    def frame_size(self) -> tuple[int, int]:
         """Size of each video frame in pixels as a tuple of (width, height)."""
         ...
 
@@ -175,7 +170,7 @@ class VideoStream(ABC):
     #
 
     @abstractmethod
-    def read(self, decode: bool = True) -> ty.Union[np.ndarray, bool]:
+    def read(self, decode: bool = True) -> np.ndarray | bool:
         """Read and decode the next frame as a np.ndarray. Returns False when video ends.
 
         Arguments:
@@ -195,7 +190,7 @@ class VideoStream(ABC):
         ...
 
     @abstractmethod
-    def seek(self, target: ty.Union[FrameTimecode, float, int]) -> None:
+    def seek(self, target: TimecodeLike) -> None:
         """Seek to the given timecode. If given as a frame number, represents the current seek
         pointer (e.g. if seeking to 0, the next frame decoded will be the first frame of the video).
 

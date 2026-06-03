@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2022 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2022 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -16,12 +16,10 @@ If this difference exceeds a set threshold, a scene cut is triggered.
 This detector is available from the command-line interface by using the `detect-hash` command.
 """
 
-import typing as ty
-
 import cv2
 import numpy
 
-from scenedetect.common import FrameTimecode
+from scenedetect.common import FrameTimecode, TimecodeLike
 from scenedetect.detector import SceneDetector
 
 
@@ -41,8 +39,9 @@ class HashDetector(SceneDetector):
         size: Size of square of low frequency data to use for the DCT
         lowpass:  How much high frequency information to filter from the DCT. A value of 2 means
             keep lower 1/2 of the frequency data, 4 means only keep 1/4, etc...
-        min_scene_len: Once a cut is detected, this many frames must pass before a new one can
-                be added to the scene list. Can be an int or FrameTimecode type.
+        min_scene_len: Once a cut is detected, this much time must pass before a new one can
+                be added to the scene list. Accepts an int (frames), float (seconds), or
+                str (e.g. ``"0.6s"``, ``"00:00:00.600"``).
     """
 
     def __init__(
@@ -50,16 +49,16 @@ class HashDetector(SceneDetector):
         threshold: float = 0.395,
         size: int = 16,
         lowpass: int = 2,
-        min_scene_len: int = 15,
+        min_scene_len: TimecodeLike = 15,
     ):
-        super(HashDetector, self).__init__()
+        super().__init__()
         self._threshold = threshold
         self._min_scene_len = min_scene_len
         self._size = size
         self._size_sq = float(size * size)
         self._factor = lowpass
-        self._last_frame: numpy.ndarray = None
-        self._last_scene_cut: FrameTimecode = None
+        self._last_frame: numpy.ndarray | None = None
+        self._last_scene_cut: FrameTimecode | None = None
         self._last_hash = numpy.array([])
         self._metric_key = f"hash_dist [size={self._size} lowpass={self._factor}]"
 
@@ -68,7 +67,7 @@ class HashDetector(SceneDetector):
 
     def process_frame(
         self, timecode: FrameTimecode, frame_img: numpy.ndarray
-    ) -> ty.List[FrameTimecode]:
+    ) -> list[FrameTimecode]:
         """Similar to ContentDetector, but using a perceptual hashing algorithm
         to calculate a hash for each frame and then calculate a hash difference
         frame to frame."""
@@ -137,14 +136,14 @@ class HashDetector(SceneDetector):
             max_value = 1
 
         # Calculate discrete cosine tranformation of the image
-        resized_img = numpy.float32(resized_img) / max_value
+        resized_img = numpy.asarray(numpy.float32(resized_img) / max_value)
         dct_complete = cv2.dct(resized_img)
 
         # Only keep the low frequency information
         dct_low_freq = dct_complete[:hash_size, :hash_size]
 
         # Calculate the median of the low frequency informations
-        med = numpy.median(dct_low_freq)
+        med = numpy.median(numpy.asarray(dct_low_freq, dtype=numpy.float32))
 
         # Transform the low frequency information into a binary image based on > or < median
         hash_img = dct_low_freq > med

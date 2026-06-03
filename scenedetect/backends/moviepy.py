@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2022 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -16,6 +16,8 @@ the input should support seeking, but does not necessarily have to be a video. F
 image sequences or AviSynth scripts are supported as inputs.
 """
 
+import os
+import time
 import typing as ty
 from fractions import Fraction
 from logging import getLogger
@@ -25,56 +27,106 @@ import numpy as np
 from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
 
 from scenedetect.backends.opencv import VideoStreamCv2
-from scenedetect.common import FrameTimecode, Timecode, framerate_to_fraction
-from scenedetect.platform import get_file_name
+from scenedetect.common import (
+    FrameRate,
+    FrameTimecode,
+    Timecode,
+    TimecodeLike,
+    framerate_to_fraction,
+)
+from scenedetect.platform import StrPath, get_file_name
 from scenedetect.video_stream import SeekError, VideoOpenFailure, VideoStream
 
 logger = getLogger("pyscenedetect")
+
+# MoviePy spawns ffmpeg as a subprocess and reads frame bytes over stdout. Under
+# load the parent can read before the child has flushed its first write, which
+# surfaces as OSError (see #496). A short retry clears nearly all such flakes.
+_FFMPEG_RETRY_COUNT = 2
+_FFMPEG_RETRY_BACKOFF_SECS = 0.5
+
+
+def _retry_on_oserror(op_name: str, fn: ty.Callable):
+    """Run ``fn``, retrying up to ``_FFMPEG_RETRY_COUNT`` times on ``OSError``."""
+    last_exc: OSError | None = None
+    for attempt in range(_FFMPEG_RETRY_COUNT + 1):
+        try:
+            return fn()
+        except OSError as ex:
+            last_exc = ex
+            if attempt < _FFMPEG_RETRY_COUNT:
+                logger.warning(
+                    "ffmpeg %s failed (attempt %d/%d), retrying: %s",
+                    op_name,
+                    attempt + 1,
+                    _FFMPEG_RETRY_COUNT + 1,
+                    ex,
+                )
+                time.sleep(_FFMPEG_RETRY_BACKOFF_SECS)
+    assert last_exc is not None
+    raise last_exc
 
 
 class VideoStreamMoviePy(VideoStream):
     """MoviePy `FFMPEG_VideoReader` backend."""
 
     def __init__(
-        self, path: ty.AnyStr, framerate: ty.Optional[float] = None, print_infos: bool = False
+        self,
+        path: StrPath,
+        frame_rate: FrameRate | None = None,
+        print_infos: bool = False,
+        framerate: float | None = None,
     ):
         """Open a video or device.
 
         Arguments:
             path: Path to video,.
-            framerate: If set, overrides the detected framerate.
+            frame_rate: If set, overrides the detected frame rate. Takes precedence over
+                `framerate`.
             print_infos: If True, prints information about the opened video to stdout.
+            framerate: [DEPRECATED] Use `frame_rate` instead. Retained as a deprecated
+                alias for backwards compatibility; ignored when `frame_rate` is provided.
 
         Raises:
             OSError: file could not be found, access was denied, or the video is corrupt
             VideoOpenFailure: video could not be opened (may be corrupted)
+            ValueError: specified frame rate is invalid
         """
         super().__init__()
 
+        # TODO(https://scenedetect.com/issue/548): emit DeprecationWarning when `framerate=` is
+        # used, once internal callers and downstream users have had a release to migrate.
+        if frame_rate is None:
+            frame_rate = framerate
         # TODO: Investigate how MoviePy handles ffmpeg not being on PATH.
-        # TODO: Add framerate override.
-        if framerate is not None:
-            raise NotImplementedError(
-                "VideoStreamMoviePy does not support the `framerate` argument yet."
-            )
+        if frame_rate is not None and frame_rate <= 0:
+            raise ValueError(f"Specified frame rate ({float(frame_rate):f}) is invalid!")
+        # The override - if set - takes precedence over the rate reported by the reader.
+        # MoviePy assumes CFR, so changing the rate is equivalent to reinterpreting frame
+        # timestamps at a different cadence; the source's wall-clock duration is unaffected.
+        self._frame_rate_override: Fraction | None = (
+            framerate_to_fraction(frame_rate) if frame_rate is not None else None
+        )
 
-        self._path = path
+        self._path: str = os.fspath(path)
         # TODO: Need to map errors based on the strings, since several failure
         # cases return IOErrors (e.g. could not read duration/video resolution). These
         # should be mapped to specific errors, e.g. write a function to map MoviePy
         # exceptions to a new set of equivalents.
-        self._reader = FFMPEG_VideoReader(path, print_infos=print_infos)
+        self._reader = _retry_on_oserror(
+            "open", lambda: FFMPEG_VideoReader(self._path, print_infos=print_infos)
+        )
         # This will always be one behind self._reader.lastread when we finally call read()
         # as MoviePy caches the first frame when opening the video. Thus self._last_frame
         # will always be the current frame, and self._reader.lastread will be the next.
-        self._last_frame: ty.Union[bool, np.ndarray] = False
-        self._last_frame_rgb: ty.Optional[np.ndarray] = None
+        self._last_frame: bool | np.ndarray = False
+        self._last_frame_rgb: np.ndarray | None = None
         # Older versions don't track the video position when calling read_frame so we need
         # to keep track of the current frame number.
         self._frame_number = 0
         # We need to manually keep track of EOF as duration may not be accurate.
         self._eof = False
-        self._aspect_ratio: float = None
+        self._aspect_ratio: float | None = None
 
     #
     # VideoStream Methods/Properties
@@ -85,11 +137,14 @@ class VideoStreamMoviePy(VideoStream):
 
     @property
     def frame_rate(self) -> Fraction:
-        """Framerate in frames/sec as a rational Fraction."""
+        """Framerate in frames/sec as a rational Fraction. Returns the override passed at
+        construction if one was provided; otherwise the rate reported by MoviePy's reader."""
+        if self._frame_rate_override is not None:
+            return self._frame_rate_override
         return framerate_to_fraction(self._reader.fps)
 
     @property
-    def path(self) -> ty.Union[bytes, str]:
+    def path(self) -> str:
         """Video path."""
         return self._path
 
@@ -104,12 +159,12 @@ class VideoStreamMoviePy(VideoStream):
         return True
 
     @property
-    def frame_size(self) -> ty.Tuple[int, int]:
+    def frame_size(self) -> tuple[int, int]:
         """Size of each video frame in pixels as a tuple of (width, height)."""
         return tuple(self._reader.infos["video_size"])
 
     @property
-    def duration(self) -> ty.Optional[FrameTimecode]:
+    def duration(self) -> FrameTimecode | None:
         """Duration of the stream as a FrameTimecode, or None if non terminating."""
         assert isinstance(self._reader.infos["duration"], float)
         return self.base_timecode + self._reader.infos["duration"]
@@ -161,7 +216,7 @@ class VideoStreamMoviePy(VideoStream):
         """
         return self._frame_number
 
-    def seek(self, target: ty.Union[FrameTimecode, float, int]):
+    def seek(self, target: TimecodeLike):
         """Seek to the given timecode. If given as a frame number, represents the current seek
         pointer (e.g. if seeking to 0, the next frame decoded will be the first frame of the video).
 
@@ -183,9 +238,13 @@ class VideoStreamMoviePy(VideoStream):
         success = False
         if not isinstance(target, FrameTimecode):
             target = FrameTimecode(target, self.frame_rate)
+        duration = self.duration
+        assert duration is not None
         try:
-            self._last_frame = self._reader.get_frame(target.seconds)
-            if hasattr(self._reader, "last_read") and target >= self.duration:
+            self._last_frame = _retry_on_oserror(
+                "seek", lambda: self._reader.get_frame(target.seconds)
+            )
+            if hasattr(self._reader, "last_read") and target >= duration:
                 raise SeekError("MoviePy > 2.0 does not have proper EOF semantics (#461).")
             self._frame_number = min(
                 target.frame_num,
@@ -198,7 +257,7 @@ class VideoStreamMoviePy(VideoStream):
             #
             # We need to ensure consistency for seeking past end of video with respect to errors and
             # behaviour, and should probably gracefully stop at the last frame instead of throwing.
-            if target >= self.duration:
+            if target >= duration:
                 raise SeekError("Target frame is beyond end of video!") from ex
             raise
         finally:
@@ -212,9 +271,11 @@ class VideoStreamMoviePy(VideoStream):
         self._last_frame_rgb = None
         self._frame_number = 0
         self._eof = False
-        self._reader = FFMPEG_VideoReader(self._path, print_infos=print_infos)
+        self._reader = _retry_on_oserror(
+            "reset", lambda: FFMPEG_VideoReader(self._path, print_infos=print_infos)
+        )
 
-    def read(self, decode: bool = True) -> ty.Union[np.ndarray, bool]:
+    def read(self, decode: bool = True) -> np.ndarray | bool:
         if not hasattr(self._reader, "lastread") or self._eof:
             return False
         has_last_read = hasattr(self._reader, "last_read")
@@ -227,9 +288,8 @@ class VideoStreamMoviePy(VideoStream):
                 return False
             self._eof = True
         self._frame_number += 1
-        if decode:
-            last_frame_valid = self._last_frame is not None and self._last_frame is not False
-            if last_frame_valid:
-                self._last_frame_rgb = cv2.cvtColor(self._last_frame, cv2.COLOR_BGR2RGB)
-                return self._last_frame_rgb
+        if decode and isinstance(self._last_frame, np.ndarray):
+            self._last_frame_rgb = cv2.cvtColor(self._last_frame, cv2.COLOR_BGR2RGB)
+            assert self._last_frame_rgb is not None
+            return self._last_frame_rgb
         return not self._eof

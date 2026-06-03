@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2024 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -15,33 +15,29 @@ In addition to the the arguments registered with the command, commands will be c
 current command-line context, as well as the processing result (scenes and cuts).
 """
 
-import json
 import logging
-import os.path
-import typing as ty
 import webbrowser
-from datetime import datetime
-from pathlib import Path
 from string import Template
-from xml.dom import minidom
-from xml.etree import ElementTree
 
-import scenedetect
-from scenedetect._cli.config import XmlFormat
+from scenedetect._cli.config import FcpFormat
 from scenedetect._cli.context import CliContext
-from scenedetect.common import FrameTimecode
 from scenedetect.output import save_images as save_images_impl
 from scenedetect.output import (
     split_video_ffmpeg,
     split_video_mkvmerge,
     write_scene_list,
+    write_scene_list_edl,
+    write_scene_list_fcp7,
+    write_scene_list_fcpx,
     write_scene_list_html,
+    write_scene_list_otio,
 )
 from scenedetect.platform import get_and_create_path
 from scenedetect.scene_manager import (
     CutList,
     Interpolation,
     SceneList,
+    expand_scenes_to_bounds,
 )
 
 logger = logging.getLogger("pyscenedetect")
@@ -58,6 +54,7 @@ def save_html(
     show: bool,
 ):
     """Handles the `save-html` command."""
+    assert context.video_stream is not None
     (image_filenames, output) = (
         context.save_images_result
         if context.save_images_result is not None
@@ -90,6 +87,7 @@ def save_qp(
 ):
     """Handler for the `save-qp` command."""
     del scenes  # We only use cuts for this handler.
+    assert context.video_stream is not None
     qp_path = get_and_create_path(
         Template(filename).safe_substitute(VIDEO_NAME=context.video_stream.name),
         output,
@@ -97,7 +95,7 @@ def save_qp(
     start_frame = context.start_time.frame_num if context.start_time else 0
     shift_start = not disable_shift
     offset = start_frame if shift_start else 0
-    with open(qp_path, "wt") as qp_file:
+    with open(qp_path, "w") as qp_file:
         qp_file.write(f"{0 if shift_start else start_frame} I -1\n")
         # Place another I frame at each detected cut.
         qp_file.writelines(f"{cut.frame_num - offset} I -1\n" for cut in cuts)
@@ -120,6 +118,7 @@ def list_scenes(
     row_separator: str,
 ):
     """Handles the `list-scenes` command."""
+    assert context.video_stream is not None
     # Write scene list CSV to if required.
     if not no_output_file:
         scene_list_filename = Template(filename).safe_substitute(
@@ -155,14 +154,7 @@ def list_scenes(
 -----------------------------------------------------------------------""",
             "\n".join(
                 [
-                    " |  %5d  | %11d | %s | %11d | %s |"
-                    % (
-                        i + 1,
-                        start_time.frame_num + 1,
-                        start_time.get_timecode(),
-                        end_time.frame_num,
-                        end_time.get_timecode(),
-                    )
+                    f" |  {i + 1:5d}  | {start_time.frame_num + 1:11d} | {start_time.get_timecode()} | {end_time.frame_num:11d} | {end_time.get_timecode()} |"
                     for i, (start_time, end_time) in enumerate(scenes)
                 ]
             ),
@@ -184,7 +176,7 @@ def save_images(
     image_extension: str,
     encoder_param: int,
     filename: str,
-    output: ty.Optional[str],
+    output: str | None,
     show_progress: bool,
     scale: int,
     height: int,
@@ -194,6 +186,7 @@ def save_images(
 ):
     """Handles the `save-images` command."""
     del cuts  # save-images only uses scenes.
+    assert context.video_stream is not None
 
     images = save_images_impl(
         scene_list=scenes,
@@ -224,9 +217,22 @@ def split_video(
     output: str,
     show_output: bool,
     ffmpeg_args: str,
+    expand: bool,
 ):
     """Handles the `split-video` command."""
     del cuts  # split-video only uses scenes.
+    assert context.video_stream is not None
+
+    if expand and scenes:
+        video_duration = context.video_stream.duration
+        if video_duration is None:
+            logger.warning("Cannot --expand: video duration is unavailable for this stream.")
+        else:
+            scenes = expand_scenes_to_bounds(
+                scenes,
+                start=context.video_stream.base_timecode,
+                end=video_duration,
+            )
 
     if use_mkvmerge:
         name_format = name_format.removesuffix("-$SCENE_NUMBER")
@@ -270,226 +276,69 @@ def save_edl(
     output: str,
     title: str,
     reel: str,
+    start_timecode: str | None,
 ):
     """Handles the `save-edl` command. Outputs in CMX 3600 format."""
-    # We only use scene information.
-    del cuts
-
-    # Converts FrameTimecode to HH:MM:SS:FF
-    # TODO: This should be part of the FrameTimecode object itself.
-    def get_edl_timecode(timecode: FrameTimecode):
-        total_seconds = timecode.seconds
-        hours = int(total_seconds // 3600)
-        minutes = int((total_seconds % 3600) // 60)
-        seconds = int(total_seconds % 60)
-        frames_part = int((total_seconds * timecode.framerate) % timecode.framerate)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}:{frames_part:02d}"
-
-    edl_content = []
-
-    title = Template(title).safe_substitute(VIDEO_NAME=context.video_stream.name)
-    edl_content.append(f"TITLE: {title}")
-    edl_content.append("FCM: NON-DROP FRAME")
-    edl_content.append("")
-
-    # Add each shot as an edit entry
-    for i, (start, end) in enumerate(scenes):
-        in_tc = get_edl_timecode(start)
-        out_tc = get_edl_timecode(end)  # Correct for presentation time
-        # Format the edit entry according to CMX 3600 format
-        event_line = f"{(i + 1):03d}  {reel} V     C        {in_tc} {out_tc} {in_tc} {out_tc}"
-        edl_content.append(event_line)
-
-    edl_path = get_and_create_path(
-        Template(filename).safe_substitute(VIDEO_NAME=context.video_stream.name),
-        output,
-    )
-    logger.info(f"Writing scenes in EDL format to {edl_path}")
-    with open(edl_path, "w") as f:
-        f.write(f"* CREATED WITH PYSCENEDETECT {scenedetect.__version__}\n")
-        f.write("\n".join(edl_content))
-        f.write("\n")
-
-
-def _save_xml_fcpx(
-    context: CliContext,
-    scenes: SceneList,
-    filename: str,
-    output: str,
-):
-    """Saves scenes in Final Cut Pro X XML format."""
-    ASSET_ID = "asset1"
-    FORMAT_ID = "format1"
-    # TODO: Need to handle other video formats!
-    VIDEO_FORMAT_TODO_HANDLE_OTHERS = "FFVideoFormat1080p24"
-
-    root = ElementTree.Element("fcpxml", version="1.9")
-    resources = ElementTree.SubElement(root, "resources")
-    ElementTree.SubElement(resources, "format", id="format1", name=VIDEO_FORMAT_TODO_HANDLE_OTHERS)
-
+    del cuts  # We only use scene information.
+    assert context.video_stream is not None
     video_name = context.video_stream.name
-
-    # TODO: We should calculate duration from the scene list.
-    duration = context.video_stream.duration
-    duration = str(duration.seconds) + "s"  # TODO: Is float okay here?
-    path = Path(context.video_stream.path).absolute()
-    ElementTree.SubElement(
-        resources,
-        "asset",
-        id=ASSET_ID,
-        name=video_name,
-        src=str(path),
-        duration=duration,
-        hasVideo="1",
-        hasAudio="1",  # TODO: Handle case of no audio.
-        format=FORMAT_ID,
-    )
-
-    library = ElementTree.SubElement(root, "library")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    event = ElementTree.SubElement(library, "event", name=f"Shot Detection {now}")
-    project = ElementTree.SubElement(
-        event, "project", name=video_name
-    )  # TODO: Allow customizing project name.
-    sequence = ElementTree.SubElement(project, "sequence", format=FORMAT_ID, duration=duration)
-    spine = ElementTree.SubElement(sequence, "spine")
-
-    for i, (start, end) in enumerate(scenes):
-        start_seconds = start.seconds
-        duration_seconds = (end - start).seconds
-        clip = ElementTree.SubElement(
-            spine,
-            "clip",
-            name=f"Shot {i + 1}",
-            duration=f"{duration_seconds:.3f}s",
-            start=f"{start_seconds:.3f}s",
-            offset=f"{start_seconds:.3f}s",
-        )
-        ElementTree.SubElement(
-            clip,
-            "asset-clip",
-            ref=ASSET_ID,
-            duration=f"{duration_seconds:.3f}s",
-            start=f"{start_seconds:.3f}s",
-            offset="0s",
-            name=f"Shot {i + 1}",
-        )
-
-    pretty_xml = minidom.parseString(ElementTree.tostring(root, encoding="unicode")).toprettyxml(
-        indent="  "
-    )
-    xml_path = get_and_create_path(
-        Template(filename).safe_substitute(VIDEO_NAME=context.video_stream.name),
+    edl_path = get_and_create_path(
+        Template(filename).safe_substitute(VIDEO_NAME=video_name),
         output,
     )
-    logger.info(f"Writing scenes in FCPX format to {xml_path}")
-    with open(xml_path, "w") as f:
-        f.write(pretty_xml)
-
-
-def _save_xml_fcp(
-    context: CliContext,
-    scenes: SceneList,
-    filename: str,
-    output: str,
-):
-    """Saves scenes in Final Cut Pro 7 XML format."""
-    assert scenes
-    root = ElementTree.Element("xmeml", version="5")
-    project = ElementTree.SubElement(root, "project")
-    ElementTree.SubElement(project, "name").text = context.video_stream.name
-    sequence = ElementTree.SubElement(project, "sequence")
-    ElementTree.SubElement(sequence, "name").text = context.video_stream.name
-
-    fps = float(context.video_stream.frame_rate)
-    ntsc = "True" if context.video_stream.frame_rate.denominator != 1 else "False"
-    duration = scenes[-1][1] - scenes[0][0]
-    ElementTree.SubElement(sequence, "duration").text = str(round(duration.seconds * fps))
-
-    rate = ElementTree.SubElement(sequence, "rate")
-    ElementTree.SubElement(rate, "timebase").text = str(round(fps))
-    ElementTree.SubElement(rate, "ntsc").text = ntsc
-
-    timecode = ElementTree.SubElement(sequence, "timecode")
-    tc_rate = ElementTree.SubElement(timecode, "rate")
-    ElementTree.SubElement(tc_rate, "timebase").text = str(round(fps))
-    ElementTree.SubElement(tc_rate, "ntsc").text = ntsc
-    ElementTree.SubElement(timecode, "frame").text = "0"
-    ElementTree.SubElement(timecode, "displayformat").text = "NDF"
-
-    media = ElementTree.SubElement(sequence, "media")
-    video = ElementTree.SubElement(media, "video")
-    format = ElementTree.SubElement(video, "format")
-    ElementTree.SubElement(format, "samplecharacteristics")
-    track = ElementTree.SubElement(video, "track")
-
-    # Add clips for each shot boundary
-    for i, (start, end) in enumerate(scenes):
-        clip = ElementTree.SubElement(track, "clipitem")
-        ElementTree.SubElement(clip, "name").text = f"Shot {i + 1}"
-        ElementTree.SubElement(clip, "enabled").text = "TRUE"
-        ElementTree.SubElement(clip, "rate").append(
-            ElementTree.fromstring(f"<timebase>{round(fps)}</timebase>")
-        )
-        # Frame numbers relative to the declared <timebase> fps, computed from PTS seconds.
-        ElementTree.SubElement(clip, "start").text = str(round(start.seconds * fps))
-        ElementTree.SubElement(clip, "end").text = str(round(end.seconds * fps))
-        ElementTree.SubElement(clip, "in").text = str(round(start.seconds * fps))
-        ElementTree.SubElement(clip, "out").text = str(round(end.seconds * fps))
-
-        file_ref = ElementTree.SubElement(clip, "file", id=f"file{i + 1}")
-        ElementTree.SubElement(file_ref, "name").text = context.video_stream.name
-        path = Path(context.video_stream.path).absolute()
-        # TODO: Can we just use path.as_uri() here?
-        # On Windows this should be: file://localhost/C:/Users/... according to the samples provided
-        # from https://github.com/Breakthrough/PySceneDetect/issues/156#issuecomment-1076213412.
-        ElementTree.SubElement(file_ref, "pathurl").text = f"file://{path}"
-
-        media_ref = ElementTree.SubElement(file_ref, "media")
-        video_ref = ElementTree.SubElement(media_ref, "video")
-        ElementTree.SubElement(video_ref, "samplecharacteristics")
-        link = ElementTree.SubElement(clip, "link")
-        ElementTree.SubElement(link, "linkclipref").text = f"file{i + 1}"
-        ElementTree.SubElement(link, "mediatype").text = "video"
-
-    pretty_xml = minidom.parseString(ElementTree.tostring(root, encoding="unicode")).toprettyxml(
-        indent="  "
+    write_scene_list_edl(
+        output_path=edl_path,
+        scene_list=scenes,
+        title=Template(title).safe_substitute(VIDEO_NAME=video_name),
+        reel=reel,
+        start_timecode=start_timecode,
     )
-    xml_path = get_and_create_path(
-        Template(filename).safe_substitute(VIDEO_NAME=context.video_stream.name),
-        output,
-    )
-    logger.info(f"Writing scenes in FCP format to {xml_path}")
-    with open(xml_path, "w") as f:
-        f.write(pretty_xml)
 
 
-def save_xml(
+def save_fcp(
     context: CliContext,
     scenes: SceneList,
     cuts: CutList,
     filename: str,
-    format: XmlFormat,
+    format: FcpFormat,
     output: str,
 ):
-    """Handles the `save-xml` command."""
-    # We only use scene information.
-    del cuts
-
+    """Handles the `save-fcp` command."""
+    del cuts  # We only use scene information.
     if not scenes:
         return
+    assert context.video_stream is not None
 
-    if format == XmlFormat.FCPX:
-        _save_xml_fcpx(context, scenes, filename, output)
-    elif format == XmlFormat.FCP:
-        _save_xml_fcp(context, scenes, filename, output)
+    video_stream = context.video_stream
+    video_name = str(video_stream.name)
+    video_path = str(video_stream.path)
+    xml_path = get_and_create_path(
+        Template(filename).safe_substitute(VIDEO_NAME=video_name),
+        output,
+    )
+    if format == FcpFormat.FCPX:
+        write_scene_list_fcpx(
+            output_path=xml_path,
+            scene_list=scenes,
+            video_path=video_path,
+            frame_rate=video_stream.frame_rate,
+            frame_size=video_stream.frame_size,
+            video_name=video_name,
+        )
+    elif format == FcpFormat.FCP7:
+        write_scene_list_fcp7(
+            output_path=xml_path,
+            scene_list=scenes,
+            video_path=video_path,
+            frame_rate=video_stream.frame_rate,
+            frame_size=video_stream.frame_size,
+            video_name=video_name,
+            source_duration=video_stream.duration,
+        )
     else:
         logger.error(f"Unknown format: {format}")
 
 
-# TODO: We have to export framerate as a float for OTIO's current format. When OTIO supports
-# fractional timecodes, we should export the framerate as a rational number instead.
-# https://github.com/AcademySoftwareFoundation/OpenTimelineIO/issues/190
 def save_otio(
     context: CliContext,
     scenes: SceneList,
@@ -499,92 +348,20 @@ def save_otio(
     name: str,
     audio: bool,
 ):
-    """Saves scenes in OTIO format."""
-
+    """Handles the `save-otio` command."""
     del cuts  # We only use scene information
-
-    video_name = context.video_stream.name
-    video_path = os.path.abspath(context.video_stream.path)
-    video_base_name = os.path.basename(context.video_stream.path)
-    frame_rate = float(context.video_stream.frame_rate)
-
-    # List of track mapping to resource type.
-    # TODO(https://scenedetect.com/issues/497): Allow OTIO export without an audio track.
-    track_list = {"Video 1": "Video"}
-    if audio:
-        track_list["Audio 1"] = "Audio"
-
-    otio = {
-        "OTIO_SCHEMA": "Timeline.1",
-        "name": Template(name).safe_substitute(VIDEO_NAME=video_name),
-        "global_start_time": {
-            "OTIO_SCHEMA": "RationalTime.1",
-            "rate": frame_rate,
-            "value": 0.0,
-        },
-        "tracks": {
-            "OTIO_SCHEMA": "Stack.1",
-            "enabled": True,
-            "children": [
-                {
-                    "OTIO_SCHEMA": "Track.1",
-                    "name": track_name,
-                    "enabled": True,
-                    "children": [
-                        {
-                            "OTIO_SCHEMA": "Clip.2",
-                            "name": video_base_name,
-                            "source_range": {
-                                "OTIO_SCHEMA": "TimeRange.1",
-                                "duration": {
-                                    "OTIO_SCHEMA": "RationalTime.1",
-                                    "rate": frame_rate,
-                                    "value": round((end - start).seconds * frame_rate, 6),
-                                },
-                                "start_time": {
-                                    "OTIO_SCHEMA": "RationalTime.1",
-                                    "rate": frame_rate,
-                                    "value": round(start.seconds * frame_rate, 6),
-                                },
-                            },
-                            "enabled": True,
-                            "media_references": {
-                                "DEFAULT_MEDIA": {
-                                    "OTIO_SCHEMA": "ExternalReference.1",
-                                    "name": video_base_name,
-                                    "available_range": {
-                                        "OTIO_SCHEMA": "TimeRange.1",
-                                        "duration": {
-                                            "OTIO_SCHEMA": "RationalTime.1",
-                                            "rate": frame_rate,
-                                            "value": 1980.0,
-                                        },
-                                        "start_time": {
-                                            "OTIO_SCHEMA": "RationalTime.1",
-                                            "rate": frame_rate,
-                                            "value": 0.0,
-                                        },
-                                    },
-                                    "available_image_bounds": None,
-                                    "target_url": video_path,
-                                }
-                            },
-                            "active_media_reference_key": "DEFAULT_MEDIA",
-                        }
-                        for (start, end) in scenes
-                    ],
-                    "kind": track_type,
-                }
-                for (track_name, track_type) in track_list.items()
-            ],
-        },
-    }
-
+    assert context.video_stream is not None
+    video_stream = context.video_stream
+    video_name = str(video_stream.name)
     otio_path = get_and_create_path(
-        Template(filename).safe_substitute(VIDEO_NAME=context.video_stream.name),
+        Template(filename).safe_substitute(VIDEO_NAME=video_name),
         output,
     )
-    logger.info(f"Writing scenes in OTIO format to {otio_path}")
-    with open(otio_path, "w") as f:
-        json.dump(otio, f, indent=4)
-        f.write("\n")
+    write_scene_list_otio(
+        output_path=otio_path,
+        scene_list=scenes,
+        video_path=str(video_stream.path),
+        frame_rate=video_stream.frame_rate,
+        name=Template(name).safe_substitute(VIDEO_NAME=video_name),
+        audio=audio,
+    )

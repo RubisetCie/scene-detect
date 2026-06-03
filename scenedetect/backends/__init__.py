@@ -5,7 +5,7 @@
 #     [  Docs:    https://scenedetect.com/docs/                     ]
 #     [  Github:  https://github.com/Breakthrough/PySceneDetect/    ]
 #
-# Copyright (C) 2014-2024 Brandon Castellano <http://www.bcastell.com>.
+# Copyright (C) 2022 Brandon Castellano <http://www.bcastell.com>.
 # PySceneDetect is licensed under the BSD 3-Clause License; see the
 # included LICENSE file, or visit one of the above pages for details.
 #
@@ -83,8 +83,6 @@ examples for details.
 # TODO: Future VideoStream implementations under consideration:
 #  - Nvidia VPF: https://developer.nvidia.com/blog/vpf-hardware-accelerated-video-processing-framework-in-python/
 
-import typing as ty
-
 # OpenCV must be available at minimum.
 from scenedetect.backends.opencv import VideoCaptureAdapter, VideoStreamCv2
 
@@ -100,7 +98,7 @@ except ImportError:
 
 # TODO: Lazy-loading backends would improve startup performance. However, this requires removing
 # some of the re-exported types above from the public API.
-AVAILABLE_BACKENDS: ty.Dict[str, ty.Type] = {
+AVAILABLE_BACKENDS: dict[str, type] = {
     backend.BACKEND_NAME: backend
     for backend in filter(
         None,
@@ -114,5 +112,5 @@ AVAILABLE_BACKENDS: ty.Dict[str, ty.Type] = {
 """All available backends that :func:`scenedetect.open_video` can consider for the `backend`
 parameter. These backends must support construction with the following signature:
 
-    BackendType(path: str, framerate: ty.Optional[float])
+    BackendType(path: str, frame_rate: ty.Optional[float | Fraction])
 """
