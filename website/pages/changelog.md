@@ -3,6 +3,81 @@
 
 ## PySceneDetect 0.7
 
+### Unreleased
+
+ - [bugfix] `$VIDEO_NAME` is now derived from the path component of URL inputs, ignoring the query string and fragment (e.g. `https://host/clip.mp4?token=1.2` -> `clip`). URLs with no path use the host. Previously the query string leaked into output filenames, which fails on Windows. [#197](https://github.com/Breakthrough/PySceneDetect/issues/197)
+ - [bugfix] OTIO exports use the full source duration when provided, including from the CLI, instead of declaring a fixed 1,980-frame duration. The available range remains unspecified when the duration is unknown. Scene source ranges are unchanged. [#580](https://github.com/Breakthrough/PySceneDetect/pull/580)
+ - [bugfix] The OpenCV backend keeps `position` on the last frame after reaching the end of a VFR video, so the last scene no longer ends early (or before it starts) [#561](https://github.com/Breakthrough/PySceneDetect/issues/561)
+ - [bugfix] `save-html --no-images` now writes to the global `-o`/`--output` directory instead of the working directory [#583](https://github.com/Breakthrough/PySceneDetect/pull/583)
+
+### PySceneDetect 0.7.2 (October 11, 2026)
+
+PySceneDetect 0.7.2 ships improved defaults for the histogram and perceptual hash detectors, adds PyAV 19 support, and fixes several timing and output bugs. **Default output of `detect-hist` and `detect-hash` will change in this release due to improved default values**.
+
+#### CLI Changes
+
+ - [improvement] `HistogramDetector` (`detect-hist`) default `threshold` changed from 0.05 to 0.20 and default `bins` from 256 to 128, calibrated from the [benchmarks](https://www.scenedetect.com/benchmarks/). Output for this detector will change if you are not setting both parameters explicitly. [#559](https://github.com/Breakthrough/PySceneDetect/issues/559)
+   - Use `detect-hist -t 0.05 -b 256` or `HistogramDetector(threshold=0.05, bins=256)` to restore the previous behavior.
+ - [improvement] `HashDetector` (`detect-hash`) default `threshold` changed from 0.395 to 0.35 and default `size` from 16 to 8, calibrated from the [benchmarks](https://www.scenedetect.com/benchmarks/). Output for this detector will change if you are not setting both parameters explicitly. [#559](https://github.com/Breakthrough/PySceneDetect/issues/559)
+   - Use `detect-hash -t 0.395 -s 16` or `HashDetector(threshold=0.395, size=16)` to restore the previous behavior.
+ - [improvement] `detect-threshold` now ignores fade-outs shorter than `0.1s` by default. Use `--min-out-length 0` to restore the previous behavior. The API default remains `0` [#278](https://github.com/Breakthrough/PySceneDetect/issues/278)
+ - [feature] Added `save-keyframes` command to export detected cuts using `# keyframe format v1` for Aegisub-compatible tools [#534](https://github.com/Breakthrough/PySceneDetect/issues/534). Frame numbers are currently approximate for VFR input [#569](https://github.com/Breakthrough/PySceneDetect/issues/569)
+ - [feature] Add `--min-out-length`/`min_out_length` to `detect-threshold`/`ThresholdDetector`, which requires that fades stay below the threshold for the given duration [#278](https://github.com/Breakthrough/PySceneDetect/issues/278)
+ - [general] `-f`, `--frame-rate`, and `--framerate` are now aliases of the same CLI option, and all forms appear in help and documentation. If multiple forms are given, the last value is used [#548](https://github.com/Breakthrough/PySceneDetect/issues/548)
+ - [bugfix] Progress bar now reaches 100% when processing variable framerate (VFR) videos, with both the OpenCV and PyAV backends [#561](https://github.com/Breakthrough/PySceneDetect/issues/561)
+ - [bugfix] Fix `AdaptiveDetector` / `detect-adaptive` emitting scenes shorter than `min_scene_len` when `window_width` is large, by applying the minimum-length check to the emitted (target) frame instead of the current frame [#408](https://github.com/Breakthrough/PySceneDetect/issues/408)
+
+#### API Changes
+
+ - [api] Legacy `framerate` argument aliases in `FrameTimecode`, `open_video()`, and the video backends now emit a `DeprecationWarning`; use `frame_rate` instead. When both forms are provided, `frame_rate` takes precedence [#548](https://github.com/Breakthrough/PySceneDetect/issues/548)
+ - [api] `write_scene_list()` now also accepts a path (`str` or `pathlib.Path`) as the first argument in addition to an open file handle; paths are opened and closed automatically [#523](https://github.com/Breakthrough/PySceneDetect/issues/523)
+ - [api] Scene-list output functions for EDL, FCPXML, FCP7 XML, and OTIO now accept an open text file handle, a string path, or a `pathlib.Path`; paths are opened and closed automatically [#567](https://github.com/Breakthrough/PySceneDetect/issues/567)
+ - [bugfix] `ThresholdDetector`/`detect-threshold` with method `CEILING` now classifies the first frame with the `CEILING` rule instead of the `FLOOR` rule, which anchored a leading fade one frame late and could emit a spurious cut at the first frame (thanks @MuhammadBilalKhan267)
+ - [bugfix] Fix `min_scene_len` given in frames dropping cuts that are exactly `min_scene_len` frames apart at NTSC framerates (e.g. 29.97 fps), by comparing frame counts instead of converting to seconds [#577](https://github.com/Breakthrough/PySceneDetect/issues/577)
+ - [bugfix] Fix `TypeError` when opening videos with the `pyav` backend on PyAV 19.0 or newer (PyAV 19 is now supported)
+ - [bugfix] Fix `pyav` backend duration calculation fallback
+ - [bugfix] Fix `pyav` backend not releasing the file handle it opened when the stream is garbage collected, which emitted a `ResourceWarning` under `python -X dev` [#568](https://github.com/Breakthrough/PySceneDetect/issues/568)
+ - [bugfix] Work around an intermittent segfault on exit with the OpenCV backend on Windows when opening PNG image sequences with `opencv-python` 4.14 or 5.0 (upstream: [opencv/opencv#30017](https://github.com/opencv/opencv/issues/30017)) [#575](https://github.com/Breakthrough/PySceneDetect/issues/575)
+
+#### Packaging
+
+ - [general] The Windows distribution now bundles PyAV 19 and FFmpeg 9.0
+ - [general] The `scenedetect-core` package introduced in 0.7.1 has been discontinued, and its only release (0.7.1) yanked from PyPI. Existing `scenedetect-core` installs keep working but will not receive updates. Install either `scenedetect` or `scenedetect-headless`. [#558](https://github.com/Breakthrough/PySceneDetect/issues/558)
+
+### PySceneDetect 0.7.1 (July 21, 2026)
+
+PySceneDetect 0.7.1 adds support for concatenating multiple videos, along with several stability and robustness fixes for the PyAV and OpenCV backends.
+
+#### CLI Changes
+
+ - [bugfix] A start time past the end of the video now fails the same way on every backend, instead of blaming multiple audio tracks (OpenCV), reporting a zero-length scene (PyAV), or hanging on an invalid seek (OpenCV 5) [#380](https://github.com/Breakthrough/PySceneDetect/issues/380)
+ - [feature] `split-video` has a new `--expand` flag: when scenes are detected within a time window (`-s`/`-e`), the first output clip is extended back to the start of the video and the last clip is extended forward to the end, so no footage outside the analysis window is dropped [#115](https://github.com/Breakthrough/PySceneDetect/issues/115)
+
+#### API Changes
+
+ - [feature] `scenedetect.detect()` now accepts a `backend` keyword argument (`"opencv"`, `"pyav"`, or `"moviepy"`) similar to `open_video`. Defaults to `"opencv"`, matching prior behavior.
+ - [feature] Add `expand_scenes_to_bounds()` helper in `scenedetect.scene_manager` to extend a scene list so the first scene starts at a given lower bound and the last scene ends at a given upper bound
+ - [feature] `VideoStream` now provides a public read-only `decode_failures` property reporting the number of frames that failed to decode and were skipped (defaults to 0; populated by the OpenCV and PyAV backends)
+ - [feature] Add `VideoStreamConcat` (`scenedetect.backends.concat`) which concatenates multiple videos into a single continuous stream with a monotonic PTS timeline; `open_video()` and `detect()` now accept a list of paths. `VideoStreamConcat.map_span()` maps spans of the global timeline back to per-source local times
+ - [bugfix] The PyAV backend (`VideoStreamAv`) now skips corrupt frames during `read()` and continues decoding instead of failing, giving up only after 8 consecutive decode failures (matching the OpenCV backend's tolerance behavior)
+ - [bugfix] The PyAV backend now normalizes presentation times by the stream start time, so files with a delayed start (e.g. from edit lists) report the first frame at `position` 0, consistent with other backends and with `seek()`
+ - [bugfix] Comparisons between two `FrameTimecode` objects that both carry exact presentation times (e.g. positions from VFR videos) and share the same frame rate are now performed exactly using `pts` and `time_base` instead of rounded frame numbers. Previously, distinct frames in VFR sections could compare equal or fail strict ordering when their times rounded to the same approximate frame number. Comparisons involving frame- or seconds-based timecodes, plain values (`int`/`float`/`str`), or differing frame rates are unchanged
+ - [bugfix] Fix image sequence inputs when using OpenCV 5.0
+
+#### Packaging
+
+ - [general] `scenedetect` and `scenedetect-headless` are unchanged: they continue to ship the full program (library + CLI) with `opencv-python` / `opencv-python-headless` respectively. Both packages provide the same `scenedetect` module (install or depend only one)
+ - [feature] Official Docker images are now published to the GitHub Container Registry with the full CLI, all backends, and external tools (ffmpeg, mkvmerge) included, thanks [@FNGarvin](https://github.com/FNGarvin) [#537](https://github.com/Breakthrough/PySceneDetect/pull/537)
+     - Example usage (process a video in the current directory):
+```bash
+docker run --rm -v "$(pwd):/files" ghcr.io/breakthrough/pyscenedetect -i /files/video.mp4 detect-adaptive split-video -o /files
+```
+ - [general] The Windows distribution now bundles OpenCV 5.0, PyAV 18, and FFmpeg 8.1.2. The Windows and Docker builds also override Pillow to 12.3.0 for upstream security fixes ([moviepy#2553](https://github.com/Zulko/moviepy/issues/2553))
+
+#### General
+
+ - [general] Benchmark results are now published on the website ([scenedetect.com/benchmarks](https://www.scenedetect.com/benchmarks/)), including accuracy at default settings and parameter sweep curves for each detector
+
 ### 0.7 (May 3, 2026)
 
 PySceneDetect 0.7 is a **major breaking release** which overhauls how timestamps are handled. This allows PySceneDetect to properly process variable framerate (VFR) videos. A significant amount of technical debt has been addressed, including removal of deprecated or overly complicated APIs.
@@ -215,7 +290,7 @@ Feedback on the new detection methods and their default values is most welcome. 
 
 ### 0.6.3 (March 9, 2024)
 
-In addition to some perfromance improvements with the `load-scenes` command, this release of PySceneDetect includes a significant amount of bugfixes. Thanks to everyone who contributed to the release, including those who filed bug reports and helped with debugging!
+In addition to some performance improvements with the `load-scenes` command, this release of PySceneDetect includes a significant amount of bugfixes. Thanks to everyone who contributed to the release, including those who filed bug reports and helped with debugging!
 
 **Program Changes:**
 
@@ -747,13 +822,4 @@ Both the Windows installer and portable distributions now include signed executa
 Development
 ==========================================================
 
-## PySceneDetect 0.7.1 (TDB)
-
-#### CLI Changes
-
- - [feature] `split-video` has a new `--expand` flag: when scenes are detected within a time window (`-s`/`-e`), the first output clip is extended back to the start of the video and the last clip is extended forward to the end, so no footage outside the analysis window is dropped [#115](https://github.com/Breakthrough/PySceneDetect/issues/115)
-
-#### API Changes
-
- - [feature] `scenedetect.detect()` now accepts a `backend` keyword argument (`"opencv"`, `"pyav"`, or `"moviepy"`) similar to `open_video`. Defaults to `"opencv"`, matching prior behavior.
- - [feature] Add `expand_scenes_to_bounds()` helper in `scenedetect.scene_manager` to extend a scene list so the first scene starts at a given lower bound and the last scene ends at a given upper bound
+## PySceneDetect 0.7.3 (TBD)

@@ -237,8 +237,8 @@ class SceneManager:
         # `stats_manager` argument to to `store_stats: bool=False`, or lazy-init one.
 
         # TODO(v1.0): This class should own a VideoStream as well, instead of passing one
-        # to the detect_scenes method. If concatenation is required, it can be implemented as
-        # a generic VideoStream wrapper.
+        # to the detect_scenes method. Concatenation is handled by VideoStreamConcat
+        # (scenedetect.backends.concat).
         self._stats_manager: StatsManager | None = stats_manager
 
         # Position of video that was first passed to detect_scenes.
@@ -571,33 +571,46 @@ class SceneManager:
         )
         decode_thread.start()
         frame_im = None
+        prev_position = None
 
         logger.info("Detecting scenes...")
-        while not self._stop.is_set():
-            next_frame, position = frame_queue.get()
-            if next_frame is None and position is None:
-                break
-            if next_frame is not None:
-                frame_im = next_frame
-            assert frame_im is not None
-            new_cuts = self._process_frame(position, frame_im, callback)
-            if progress_bar is not None:
-                if new_cuts:
-                    progress_bar.set_description(
-                        PROGRESS_BAR_DESCRIPTION % len(self._cutting_list), refresh=False
+        try:
+            while not self._stop.is_set():
+                next_frame, position = frame_queue.get()
+                if next_frame is None and position is None:
+                    break
+                if next_frame is not None:
+                    frame_im = next_frame
+                assert frame_im is not None
+                new_cuts = self._process_frame(position, frame_im, callback)
+                if progress_bar is not None:
+                    if new_cuts:
+                        progress_bar.set_description(
+                            PROGRESS_BAR_DESCRIPTION % len(self._cutting_list), refresh=False
+                        )
+                    # Increment progress bar by delta of position.frame_num instead of 1
+                    # to handle VFR video where frame count is an approximation.
+                    delta = (
+                        1 if prev_position is None else position.frame_num - prev_position.frame_num
                     )
-                progress_bar.update(1 + frame_skip)
-
-        if progress_bar is not None:
-            progress_bar.set_description(
-                PROGRESS_BAR_DESCRIPTION % len(self._cutting_list), refresh=True
-            )
-            progress_bar.close()
-        # Unblock any puts in the decode thread before joining. This can happen if the main
-        # processing thread stops before the decode thread.
-        while not frame_queue.empty():
-            frame_queue.get_nowait()
-        decode_thread.join()
+                    progress_bar.update(delta)
+                    prev_position = position
+        finally:
+            if progress_bar is not None:
+                progress_bar.set_description(
+                    PROGRESS_BAR_DESCRIPTION % len(self._cutting_list), refresh=True
+                )
+                progress_bar.close()
+            # The decode thread must never be abandoned, even if a detector or callback
+            # raises above: an orphaned daemon thread keeps the VideoStream alive until
+            # interpreter shutdown, where finalizing it (or killing the thread mid-decode)
+            # can crash process exit. Signal it to stop, then keep unblocking any pending
+            # puts until it exits.
+            self._stop.set()
+            while decode_thread.is_alive():
+                while not frame_queue.empty():
+                    frame_queue.get_nowait()
+                decode_thread.join(timeout=0.1)
 
         if self._exception_info is not None:
             exc = self._exception_info[1]

@@ -15,6 +15,7 @@ can be used to open a video for a
 :class:`SceneManager <scenedetect.scene_manager.SceneManager>`.
 """
 
+import warnings
 from logging import getLogger
 
 # OpenCV is a required package, but we don't have it as an explicit dependency since we
@@ -30,59 +31,63 @@ except ModuleNotFoundError as ex:
 
 # Commonly used classes/functions exported under the `scenedetect` namespace for brevity.
 # Note that order of importants is important!
-from scenedetect.platform import init_logger  # noqa: I001
+from scenedetect.platform import init_logger as init_logger  # noqa: I001
 from scenedetect.common import (
-    FrameTimecode,
-    FrameRate,
-    SceneList,
-    CutList,
-    CropRegion,
-    TimecodePair,
-    TimecodeLike,
-    Interpolation,
+    FrameTimecode as FrameTimecode,
+    FrameRate as FrameRate,
+    SceneList as SceneList,
+    CutList as CutList,
+    CropRegion as CropRegion,
+    TimecodePair as TimecodePair,
+    TimecodeLike as TimecodeLike,
+    Interpolation as Interpolation,
 )
-from scenedetect.platform import StrPath
-from scenedetect.video_stream import VideoStream, VideoOpenFailure
+from scenedetect.platform import StrPath as StrPath
+from scenedetect.video_stream import VideoStream as VideoStream
+from scenedetect.video_stream import VideoOpenFailure as VideoOpenFailure
 from scenedetect.output import (
-    save_images,
-    split_video_ffmpeg,
-    split_video_mkvmerge,
-    is_ffmpeg_available,
-    is_mkvmerge_available,
-    write_scene_list,
-    write_scene_list_html,
-    PathFormatter,
-    VideoMetadata,
-    SceneMetadata,
+    save_images as save_images,
+    split_video_ffmpeg as split_video_ffmpeg,
+    split_video_mkvmerge as split_video_mkvmerge,
+    is_ffmpeg_available as is_ffmpeg_available,
+    is_mkvmerge_available as is_mkvmerge_available,
+    write_scene_list as write_scene_list,
+    write_scene_list_html as write_scene_list_html,
+    PathFormatter as PathFormatter,
+    VideoMetadata as VideoMetadata,
+    SceneMetadata as SceneMetadata,
 )
-from scenedetect.detector import SceneDetector
+from scenedetect.detector import SceneDetector as SceneDetector
 from scenedetect.detectors import (
-    ContentDetector,
-    AdaptiveDetector,
-    ThresholdDetector,
-    HistogramDetector,
-    HashDetector,
+    ContentDetector as ContentDetector,
+    AdaptiveDetector as AdaptiveDetector,
+    ThresholdDetector as ThresholdDetector,
+    HistogramDetector as HistogramDetector,
+    HashDetector as HashDetector,
 )
 from scenedetect.backends import (
-    AVAILABLE_BACKENDS,
-    VideoStreamCv2,
-    VideoStreamAv,
-    VideoStreamMoviePy,
-    VideoCaptureAdapter,
+    AVAILABLE_BACKENDS as AVAILABLE_BACKENDS,
+    VideoStreamCv2 as VideoStreamCv2,
+    VideoStreamAv as VideoStreamAv,
+    VideoStreamMoviePy as VideoStreamMoviePy,
+    VideoCaptureAdapter as VideoCaptureAdapter,
+    VideoStreamConcat as VideoStreamConcat,
+    SourceSpan as SourceSpan,
 )
-from scenedetect.stats_manager import StatsManager, StatsFileCorrupt
+from scenedetect.stats_manager import StatsManager as StatsManager
+from scenedetect.stats_manager import StatsFileCorrupt as StatsFileCorrupt
 from scenedetect.scene_manager import SceneManager
 
 # Used for module identification and when printing version & about info
 # (e.g. calling `scenedetect version` or `scenedetect about`).
-__version__ = "0.8.1"
+__version__ = "0.8.2"
 
 init_logger()
 logger = getLogger("pyscenedetect")
 
 
 def open_video(
-    path: StrPath,
+    path: "StrPath | list[StrPath] | tuple[StrPath, ...]",
     frame_rate: FrameRate | None = None,
     backend: str = "opencv",
     framerate: float | None = None,
@@ -92,7 +97,9 @@ def open_video(
     system, OpenCV (`VideoStreamCv2`) will be used as a fallback.
 
     Arguments:
-        path: Path to video file to open.
+        path: Path to video file to open. May also be a list of paths, in which case the videos
+            are concatenated and treated as a single continuous stream
+            (see :class:`VideoStreamConcat <scenedetect.backends.concat.VideoStreamConcat>`).
         frame_rate: Overrides detected frame rate if set. Takes precedence over `framerate`.
         backend: Name of specific backend to use, if possible. See
             :data:`scenedetect.backends.AVAILABLE_BACKENDS` for backends available on the current
@@ -109,10 +116,19 @@ def open_video(
         :class:`VideoOpenFailure`: Constructing the VideoStream fails. If multiple backends have
             been attempted, the error from the first backend will be returned.
     """
-    # TODO(https://scenedetect.com/issue/548): emit DeprecationWarning when `framerate=` is
-    # used, once internal callers and downstream users have had a release to migrate.
+    if framerate is not None:
+        warnings.warn(
+            "`framerate` is deprecated and scheduled for removal in v0.9; "
+            "use `frame_rate` instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     if frame_rate is None:
         frame_rate = framerate
+    # A list of paths is opened as a single concatenated stream. VideoStreamConcat handles
+    # backend selection/fallback internally, so this must come before the lookup below.
+    if isinstance(path, (list, tuple)):
+        return VideoStreamConcat(path, frame_rate, backend=backend, **kwargs)
     last_error: Exception | None = None
     # If `backend` is available, try to open the video at `path` using it.
     if backend in AVAILABLE_BACKENDS:
@@ -142,7 +158,7 @@ def open_video(
 
 
 def detect(
-    video_path: StrPath,
+    video_path: "StrPath | list[StrPath] | tuple[StrPath, ...]",
     detector: SceneDetector,
     stats_file_path: StrPath | None = None,
     show_progress: bool = False,
@@ -154,7 +170,9 @@ def detect(
     """Perform scene detection on a given video `path` using the specified `detector`.
 
     Arguments:
-        video_path: Path to input video (absolute or relative to working directory).
+        video_path: Path to input video (absolute or relative to working directory). May also
+            be a list of paths, in which case the videos are concatenated and treated as a
+            single continuous stream.
         detector: A `SceneDetector` instance (see :mod:`scenedetect.detectors` for a full list
             of detectors).
         stats_file_path: Path to save per-frame metrics to for statistical analysis or to

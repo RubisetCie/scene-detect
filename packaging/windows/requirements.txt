@@ -1,13 +1,16 @@
 # PySceneDetect Requirements for Windows Build
-av==17.0.1
-click==8.2.1
+# NOTE: pillow (transitive, via moviepy) is overridden to 12.3.0 in appveyor.yml for CVE fixes
+# (see https://github.com/Zulko/moviepy/issues/2553).
+av==19.0.1
+click==8.5.0
 imageio-ffmpeg==0.6.0
 moviepy==2.2.1
-opencv-python-headless==4.13.0.92
-numpy==2.4.4
-platformdirs==4.9.6
-tqdm==4.67.3
+opencv-python-headless==5.0.0.93
+numpy==2.5.4
+platformdirs==4.13.0
+tqdm==4.70.1
 
 # Build-only and test-only requirements.
 pyinstaller
 pytest
+pytest-rerunfailures

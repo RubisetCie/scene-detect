@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from scenedetect import SceneManager, open_video
-from scenedetect.common import Timecode
+from scenedetect.common import FrameTimecode, Timecode
 from scenedetect.detectors import ContentDetector
 from scenedetect.output import save_images, write_scene_list
 from scenedetect.stats_manager import StatsManager
@@ -52,16 +52,16 @@ def _tc_to_secs(tc: str) -> float:
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
 
 
-def test_vfr_position_is_timecode(test_vfr_video: str):
+def test_vfr_position_is_timecode(test_vfr_video: str, auto_close):
     """Position should be a Timecode-backed FrameTimecode."""
-    video = open_video(test_vfr_video, backend="pyav")
+    video = auto_close(open_video(test_vfr_video, backend="pyav"))
     assert video.read() is not False
     assert isinstance(video.position._time, Timecode)
 
 
-def test_vfr_position_monotonic_pyav(test_vfr_video: str):
+def test_vfr_position_monotonic_pyav(test_vfr_video: str, auto_close):
     """PTS-based position should be monotonically non-decreasing (PyAV)."""
-    video = open_video(test_vfr_video, backend="pyav")
+    video = auto_close(open_video(test_vfr_video, backend="pyav"))
     last_seconds = -1.0
     frame_count = 0
     while True:
@@ -77,9 +77,9 @@ def test_vfr_position_monotonic_pyav(test_vfr_video: str):
     assert frame_count > 0
 
 
-def test_vfr_position_monotonic_opencv(test_vfr_video: str):
+def test_vfr_position_monotonic_opencv(test_vfr_video: str, auto_close):
     """PTS-based position should be monotonically non-decreasing (OpenCV)."""
-    video = open_video(test_vfr_video, backend="opencv")
+    video = auto_close(open_video(test_vfr_video, backend="opencv"))
     last_seconds = -1.0
     frame_count = 0
     while True:
@@ -93,16 +93,26 @@ def test_vfr_position_monotonic_opencv(test_vfr_video: str):
         last_seconds = current
         frame_count += 1
     assert frame_count > 0
+
+
+def test_vfr_position_after_eof_opencv(test_vfr_drop3_video: str, auto_close):
+    """Position should stay on the last frame once read() hits the end of the video (#561)."""
+    video = auto_close(open_video(test_vfr_drop3_video, backend="opencv"))
+    last_position = None
+    while video.read() is not False:
+        last_position = video.position
+    assert last_position is not None
+    assert video.position == last_position
 
 
 @pytest.mark.parametrize("backend", ["pyav", "opencv"])
-def test_vfr_scene_detection(test_vfr_video: str, backend: str):
+def test_vfr_scene_detection(test_vfr_video: str, backend: str, auto_close):
     """Scene detection on VFR video should produce timestamps matching known ground truth.
 
     Both PyAV (native PTS) and OpenCV (CAP_PROP_POS_MSEC) should agree on scene cuts since
     both expose accurate PTS-derived timestamps.
     """
-    video = open_video(test_vfr_video, backend=backend)
+    video = auto_close(open_video(test_vfr_video, backend=backend))
     sm = SceneManager()
     sm.add_detector(ContentDetector())
     sm.detect_scenes(video=video, end_time=10.0)
@@ -123,9 +133,9 @@ def test_vfr_scene_detection(test_vfr_video: str, backend: str):
         )
 
 
-def test_vfr_seek_pyav(test_vfr_video: str):
+def test_vfr_seek_pyav(test_vfr_video: str, auto_close):
     """Seeking should work with VFR video."""
-    video = open_video(test_vfr_video, backend="pyav")
+    video = auto_close(open_video(test_vfr_video, backend="pyav"))
     target_time = 2.0  # seconds
     video.seek(target_time)
     frame = video.read()
@@ -134,9 +144,9 @@ def test_vfr_seek_pyav(test_vfr_video: str):
     assert abs(video.position.seconds - target_time) < 1.0
 
 
-def test_vfr_stats_manager(test_vfr_video: str):
+def test_vfr_stats_manager(test_vfr_video: str, auto_close):
     """StatsManager should work correctly with VFR video."""
-    video = open_video(test_vfr_video, backend="pyav")
+    video = auto_close(open_video(test_vfr_video, backend="pyav"))
     stats = StatsManager()
     sm = SceneManager(stats_manager=stats)
     sm.add_detector(ContentDetector())
@@ -144,11 +154,11 @@ def test_vfr_stats_manager(test_vfr_video: str):
     assert len(sm.get_scene_list()) > 0
 
 
-def test_vfr_csv_output(test_vfr_video: str, tmp_path):
+def test_vfr_csv_output(test_vfr_video: str, tmp_path, auto_close):
     """CSV export should work correctly with VFR video."""
     from scenedetect.output import write_scene_list
 
-    video = open_video(test_vfr_video, backend="pyav")
+    video = auto_close(open_video(test_vfr_video, backend="pyav"))
     sm = SceneManager()
     sm.add_detector(ContentDetector())
     sm.detect_scenes(video=video)
@@ -167,10 +177,10 @@ def test_vfr_csv_output(test_vfr_video: str, tmp_path):
 
 
 @pytest.mark.parametrize("backend", ["pyav", "opencv"])
-def test_vfr_drop3_scene_detection(test_vfr_drop3_video: str, backend: str):
+def test_vfr_drop3_scene_detection(test_vfr_drop3_video: str, backend: str, auto_close):
     """Synthetic VFR video (drop every 3rd frame, alternating 1x/2x durations) should produce
     timecodes matching known ground truth with both backends."""
-    video = open_video(test_vfr_drop3_video, backend=backend)
+    video = auto_close(open_video(test_vfr_drop3_video, backend=backend))
     sm = SceneManager()
     sm.add_detector(ContentDetector())
     sm.detect_scenes(video=video, show_progress=False)
@@ -191,9 +201,9 @@ def test_vfr_drop3_scene_detection(test_vfr_drop3_video: str, backend: str):
 
 
 @pytest.mark.parametrize("backend", ["pyav", "opencv"])
-def test_vfr_drop3_position_monotonic(test_vfr_drop3_video: str, backend: str):
+def test_vfr_drop3_position_monotonic(test_vfr_drop3_video: str, backend: str, auto_close):
     """PTS-based position should be monotonically non-decreasing on synthetic VFR video."""
-    video = open_video(test_vfr_drop3_video, backend=backend)
+    video = auto_close(open_video(test_vfr_drop3_video, backend=backend))
     last_seconds = -1.0
     frame_count = 0
     while True:
@@ -208,39 +218,50 @@ def test_vfr_drop3_position_monotonic(test_vfr_drop3_video: str, backend: str):
     assert frame_count == 160  # 2/3 of original 240 frames in 10s at 24000/1001
 
 
-def test_cfr_position_is_timecode(test_movie_clip: str):
+def test_cfr_position_is_timecode(test_movie_clip: str, auto_close):
     """CFR video positions should also be Timecode-backed with PTS support."""
-    video = open_video(test_movie_clip, backend="pyav")
+    video = auto_close(open_video(test_movie_clip, backend="pyav"))
     assert video.read() is not False
     assert isinstance(video.position._time, Timecode)
 
 
-def test_cfr_frame_num_exact(test_movie_clip: str):
+def test_cfr_frame_num_exact(test_movie_clip: str, auto_close):
     """For CFR video, frame_num should be exact (not approximate)."""
-    video = open_video(test_movie_clip, backend="pyav")
+    video = auto_close(open_video(test_movie_clip, backend="pyav"))
     for expected_frame in range(1, 11):
         assert video.read() is not False
         assert video.position.frame_num == expected_frame - 1
 
 
-def test_vfr_save_images_opencv_matches_pyav(test_vfr_video: str, tmp_path):
+def test_vfr_save_images_opencv_matches_pyav(test_vfr_video: str, tmp_path, auto_close):
     """OpenCV save-images thumbnails should match PyAV thumbnails for all scenes.
 
     If the OpenCV seek off-by-one bug is present, scene thumbnails will show content from the
     wrong scene; MSE against PyAV (ground truth) will be very high for those scenes.
     """
-    # Run save-images for both backends with 1 image per scene for simplicity.
-    scene_lists = {}
+    # Detect scenes once and save images with both backends from the same scene list. Detection
+    # must not run per-backend: the cut at 00:01:39.474 scores content_val=27.08 against the
+    # default threshold of 27.0, so decoder/colorspace differences between backends (or FFmpeg
+    # builds - e.g. av 17.1.0 on macOS arm64) can flip it, changing the scene count.
+    video = auto_close(open_video(test_vfr_video, backend="pyav"))
+    sm = SceneManager()
+    sm.add_detector(ContentDetector())
+    sm.detect_scenes(video=video)
+    scene_list = sm.get_scene_list()
+    assert len(scene_list) > 0
+
+    # Run save-images for both backends with 1 image per scene for simplicity. The backends
+    # report different nominal frame rates for VFR video, so rebase the scene list onto each
+    # video's rate; the underlying PTS values are preserved (FrameTimecode copy constructor).
     for backend in ("pyav", "opencv"):
         out_dir = tmp_path / backend
         out_dir.mkdir()
-        video = open_video(test_vfr_video, backend=backend)
-        sm = SceneManager()
-        sm.add_detector(ContentDetector())
-        sm.detect_scenes(video=video)
-        scene_lists[backend] = sm.get_scene_list()
-        assert len(scene_lists[backend]) > 0
-        save_images(scene_lists[backend], video, num_images=1, output_dir=str(out_dir))
+        video = auto_close(open_video(test_vfr_video, backend=backend))
+        rebased = [
+            (FrameTimecode(start, fps=video.frame_rate), FrameTimecode(end, fps=video.frame_rate))
+            for start, end in scene_list
+        ]
+        save_images(rebased, video, num_images=1, output_dir=str(out_dir))
 
     pyav_imgs = sorted((tmp_path / "pyav").glob("*.jpg"))
     opencv_imgs = sorted((tmp_path / "opencv").glob("*.jpg"))
@@ -271,9 +292,9 @@ def test_vfr_save_images_opencv_matches_pyav(test_vfr_video: str, tmp_path):
 
 
 @pytest.mark.parametrize("backend", ["pyav", "opencv"])
-def test_vfr_csv_accuracy(test_vfr_video: str, backend: str, tmp_path):
+def test_vfr_csv_accuracy(test_vfr_video: str, backend: str, tmp_path, auto_close):
     """CSV timecodes for VFR video should match known ground truth for both backends."""
-    video = open_video(test_vfr_video, backend=backend)
+    video = auto_close(open_video(test_vfr_video, backend=backend))
     sm = SceneManager()
     sm.add_detector(ContentDetector())
     sm.detect_scenes(video=video, end_time=10.0)
@@ -406,7 +427,7 @@ def test_vfr_fcp_export(test_vfr_video: str, fcp_format: str, tmp_path):
     assert root.tag == ("fcpxml" if fcp_format == "fcpx" else "xmeml")
 
 
-def test_vfr_csv_backend_conformance(test_vfr_video: str):
+def test_vfr_csv_backend_conformance(test_vfr_video: str, auto_close):
     """PyAV and OpenCV should produce identical scene timecodes for VFR video.
 
     Only the known interior scenes are compared; the last scene's end time may vary slightly
@@ -414,7 +435,7 @@ def test_vfr_csv_backend_conformance(test_vfr_video: str):
     """
     timecodes: dict[str, list[tuple[str, str]]] = {}
     for backend in ("pyav", "opencv"):
-        video = open_video(test_vfr_video, backend=backend)
+        video = auto_close(open_video(test_vfr_video, backend=backend))
         sm = SceneManager()
         sm.add_detector(ContentDetector())
         sm.detect_scenes(video=video, end_time=10.0)

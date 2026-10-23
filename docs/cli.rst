@@ -61,9 +61,9 @@ Options
 
   Stats file (.csv) to write frame metrics. Existing files will be overwritten. Used for tuning detection parameters and data analysis.
 
-.. option:: -f FPS, --framerate FPS
+.. option:: -f FPS, --framerate FPS, --frame-rate FPS
 
-  Override framerate with value as frames/sec.
+  Override frame rate with value as frames/sec.
 
 .. option:: -m TIMECODE, --min-scene-len TIMECODE
 
@@ -308,13 +308,13 @@ Options
 
   Max distance between hash values (0.0 to 1.0) of adjacent frames. Lower values are more sensitive to changes.
 
-  Default: ``0.395``
+  Default: ``0.35``
 
 .. option:: -s SIZE, --size SIZE
 
   Size of square of low frequency data to include from the discrete cosine transform.
 
-  Default: ``16``
+  Default: ``8``
 
 .. option:: -l FRAC, --lowpass FRAC
 
@@ -359,13 +359,13 @@ Options
 
   Max difference (0.0 to 1.0) between histograms of adjacent frames. Lower values are more sensitive to changes.
 
-  Default: ``0.05``
+  Default: ``0.2``
 
 .. option:: -b NUM, --bins NUM
 
   The number of bins to use for the histogram calculation.
 
-  Default: ``256``
+  Default: ``128``
 
 .. option:: -m TIMECODE, --min-scene-len TIMECODE
 
@@ -415,6 +415,12 @@ Options
   If set and video ends after a fade-out event, generate a final cut at the last fade-out position.
 
   Default: ``True``
+
+.. option:: --min-out-length TIMECODE
+
+  Minimum time spent faded out before a cut is allowed. Ignores shorter fades even when the minimum scene length is met. Also applies to a final fade-out, including the last processed frame. Zero allows fades of any duration. TIMECODE can be specified in frames (4), seconds with an `s` suffix (0.4s), or timecode (00:00:00.400).
+
+  Default: ``0.1s``. The Python API default remains ``0``.
 
 .. option:: -m TIMECODE, --min-scene-len TIMECODE
 
@@ -548,6 +554,10 @@ Options
 .. option:: -o DIR, --output DIR
 
   Output directory to save EDL file to. Overrides global option :option:`-o/--output <scenedetect -o>`.
+
+.. option:: -s TIMECODE, --start-timecode TIMECODE
+
+  Start timecode added to every event so the EDL aligns with the source media's on-screen timecode. Accepts SMPTE HH:MM:SS:FF or 8 digits (HHMMSSFF, e.g. 01000000).
 
 
 .. _command-save-fcp:
@@ -707,6 +717,34 @@ Options
   Width (pixels) of images.
 
 
+.. _command-save-keyframes:
+
+.. program:: scenedetect save-keyframes
+
+
+``save-keyframes``
+========================================================================
+
+Save detected cuts using keyframe format v1.
+
+Frame numbers are currently approximate for variable framerate (VFR) video.
+
+
+Options
+------------------------------------------------------------------------
+
+
+.. option:: -f NAME, --filename NAME
+
+  Filename format to use.
+
+  Default: ``$VIDEO_NAME-keyframes.txt``
+
+.. option:: -o DIR, --output DIR
+
+  Output directory to save keyframes to. Overrides global option :option:`-o/--output <scenedetect -o>`.
+
+
 .. _command-save-otio:
 
 .. program:: scenedetect save-otio
@@ -859,7 +897,7 @@ Options
 
 .. option:: --expand
 
-  Extend the first/last output clips to cover the full input video, even if the :ref:`time <command-time>` command's ``--start``/``--end`` limited the analysis window. Useful for keeping content outside the analyzed region attached to the adjacent split.
+  Extend the first/last output clips to cover the full input video, even if `time -s/-e` limited the analysis window. Useful for keeping content outside the analyzed region attached to the adjacent split.
 
 
 .. _command-time:

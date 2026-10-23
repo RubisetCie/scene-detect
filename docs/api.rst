@@ -23,9 +23,9 @@ The `scenedetect` API is easy to integrate with most application workflows, whil
 
         * :func:`split_video_ffmpeg <scenedetect.output.split_video_ffmpeg>` and :func:`split_video_mkvmerge <scenedetect.output.split_video_mkvmerge>` split a video based on the detected scenes
 
-        * :func:`save_images <scenedetect.scene_manager.save_images>` can save an arbitrary number of images from each scene
+        * :func:`save_images <scenedetect.output.save_images>` can save an arbitrary number of images from each scene
 
-        * :func:`write_scene_list <scenedetect.scene_manager.write_scene_list>` can be used to save scene/cut info as CSV, :func:`write_scene_list_html <scenedetect.scene_manager.write_scene_list_html>` for HTML
+        * :func:`write_scene_list <scenedetect.output.write_scene_list>` can be used to save scene/cut info as CSV, :func:`write_scene_list_html <scenedetect.output.write_scene_list_html>` for HTML
 
     * :ref:`scenedetect.backends 🎥 <scenedetect-backends>`: PySceneDetect supports multiple libraries as an input backend:
 
@@ -34,6 +34,8 @@ The `scenedetect` API is easy to integrate with most application workflows, whil
         * PyAV: :class:`VideoStreamAv <scenedetect.backends.pyav.VideoStreamAv>`
 
         * MoviePy: :class:`VideoStreamMoviePy <scenedetect.backends.moviepy.VideoStreamMoviePy>`
+
+        * Multiple videos can be treated as a single continuous stream using :class:`VideoStreamConcat <scenedetect.backends.concat.VideoStreamConcat>` (e.g. ``open_video(["part1.mp4", "part2.mp4"])``)
 
     * :ref:`scenedetect.common ⏱️ <scenedetect-common>`: common functionality such as :class:`FrameTimecode <scenedetect.common.FrameTimecode>` for timecode handling
 
@@ -56,7 +58,7 @@ Most types/functions are also available directly from the `scenedetect` package 
 
     .. code:: python
 
-        scenedetect<0.8
+        scenedetect~=0.7
 
 
 .. _scenedetect-quickstart:

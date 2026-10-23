@@ -24,13 +24,17 @@ import re
 import string
 import subprocess
 import sys
-import typing as ty
+import urllib.parse
 
 import cv2
 
 StrPath = str | os.PathLike[str]
 """Type hint for filesystem paths. Accepts a `str` or any object implementing :class:`os.PathLike`
 (e.g. :class:`pathlib.Path`)."""
+
+BytePath = bytes | os.PathLike[bytes]
+"""Type hint for byte-based filesystem paths. Accepts `bytes` or any object implementing
+:class:`os.PathLike` that returns `bytes`."""
 
 DEBUG_MODE: bool = os.environ.get("SCENEDETECT_DEBUG", "").strip().lower() not in (
     "",
@@ -126,11 +130,50 @@ def get_cv2_imwrite_params() -> dict[str, int | None]:
 ##
 
 
+def is_url(path: StrPath) -> bool:
+    """True if `path` looks like a URL or network stream (e.g. https://..., rtsp://...)."""
+    return "://" in os.fspath(path)
+
+
 def get_file_name(file_path: StrPath, include_extension: bool = True) -> str:
     """Return the file name that `file_path` refers to, optionally removing the extension.
 
-    E.g. /tmp/foo.bar -> foo"""
-    file_name = os.path.basename(os.fspath(file_path))
+    E.g. /tmp/foo.bar -> foo
+
+    URL and URI-like inputs:
+        Inputs containing "://" are treated as URLs (see :func:`is_url`) and handled by their
+        URL components rather than as paths, since a path separator inside a query string or
+        fragment is not part of the name. The name is the last non-empty segment of the path
+        component, percent-decoded, e.g. https://example.com/videos/clip.mp4?token=1.2 -> clip.
+
+        When the path component is empty there is no segment to use, so the host becomes the
+        name, e.g. rtsp://192.168.0.1:554 -> 192.168.0.1_554. Userinfo (credentials) is never
+        part of the result, and the port is joined with "_" because ":" is not valid in a file
+        name on Windows. Hosts are returned in full even when `include_extension` is False, as
+        the last "." in a host is a domain separator and not an extension.
+
+    Arguments:
+        file_path: Path, or URL, to get the name of.
+        include_extension: If False, remove the extension (the last "." and everything after
+            it) from the name. Has no effect on names derived from a URL host.
+
+    Returns:
+        The name, or an empty string if none can be derived (e.g. a path that is only
+        separators, or a URL with neither a path nor a host).
+    """
+    file_path = os.fspath(file_path)
+    if is_url(file_path):
+        parsed = urllib.parse.urlsplit(file_path)
+        segments = [urllib.parse.unquote(seg) for seg in parsed.path.split("/") if seg]
+        if not segments:
+            # No path to take a name from, so fall back to the host (never the credentials). A
+            # host has no extension to remove: stripping after the last "." would turn
+            # example.com into example.
+            host = parsed.hostname or ""
+            return f"{host}_{parsed.port}" if host and parsed.port else host
+        file_name = segments[-1]
+    else:
+        file_name = os.path.basename(file_path)
     if not include_extension:
         last_dot_pos = file_name.rfind(".")
         if last_dot_pos >= 0:
@@ -362,10 +405,24 @@ def get_system_version_info() -> str:
     # deferred to avoid a circular import at module load time.
     from scenedetect import __version__ as scenedetect_version
 
-    # (dist_name, fallback_module_name). Module fallback is only used when metadata is
-    # missing, so the metadata path still distinguishes `opencv-python` vs
-    # `opencv-python-headless` in source installs. In the frozen Windows build only
-    # `opencv-python-headless` is shipped, so `cv2` is attributed to that row alone.
+    # (dist_name, fallback_module_name). Module fallback is only used when that dist's
+    # metadata is missing. Known quirk: `cv2` cannot reveal which distribution provided
+    # it, so whenever cv2 is importable but `opencv-python-headless` is not installed
+    # (e.g. only `opencv-python` is), the headless row still shows cv2's version via the
+    # fallback - both opencv rows then report a version even though only one is
+    # installed. Kept intentionally: the fallback is what recovers the version in the
+    # frozen Windows build (which ships cv2 without any `.dist-info`), and the
+    # `opencv-python` row is metadata-only, so it remains accurate on its own.
+    # The same code ships in the `scenedetect`/`scenedetect-headless` distributions
+    # (OpenCV variant + CLI deps). `scenedetect-core` was published in 0.7.1 only and
+    # then yanked (see https://scenedetect.com/issues/558); its row is kept so lingering
+    # installs remain visible. Metadata-only lookups (no module fallback) so each row
+    # reflects which distribution is actually installed - e.g. frozen builds show
+    # "Not Installed" here rather than misattributing the module version.
+    scenedetect_packages = (
+        ("scenedetect-core", None),
+        ("scenedetect-headless", None),
+    )
     third_party_packages = (
         ("av", "av"),
         ("click", "click"),
@@ -380,7 +437,7 @@ def get_system_version_info() -> str:
     )
     package_versions = [("scenedetect", scenedetect_version)] + [
         (dist_name, _query_package_version(dist_name, fallback_module) or not_found_str)
-        for dist_name, fallback_module in third_party_packages
+        for dist_name, fallback_module in (*scenedetect_packages, *third_party_packages)
     ]
 
     tool_versions = (
